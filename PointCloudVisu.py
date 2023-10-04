@@ -9,9 +9,11 @@ import open3d as o3d
 # -------- LiDAR Viewer ---------
 # -------------------------------
 class LidarViewer:
-    def __init__(self, pc_frames, num_frames, num_max_frames, bb_frames=None):
+    def __init__(self, pc_frames, num_frames, num_max_frames, bb_frames=None, centroid_frames=None, grid_frames=None):
         self.pc_frames = pc_frames
         self.bb_frames = bb_frames
+        self.centroid_frames = centroid_frames
+        self.grid_frames = grid_frames
         self.num_frames = num_frames
         self.num_max_frames = num_max_frames
         self.curr_frame = 0
@@ -26,9 +28,15 @@ class LidarViewer:
         if self.bb_frames:
             for bounding_box in self.bb_frames[self.curr_frame]:
                 self.vis.add_geometry(bounding_box)
+        if self.centroid_frames:
+            for centroid_cross in self.centroid_frames[self.curr_frame]:
+                self.vis.add_geometry(centroid_cross)
+        if self.grid_frames:
+            for grid in self.grid_frames[self.curr_frame]:
+                self.vis.add_geometry(grid)
 
         # --- Add the keyboard and camera callback functions to the visualizer
-        self.vis.register_key_callback(256, self.exit_viewer)                                                            # Escape
+        self.vis.register_key_callback(256, self.exit_viewer)                                                           # Escape
         self.vis.register_key_callback(262, self.next_frame)                                                            # Right arrow key
         self.vis.register_key_callback(263, self.prev_frame)                                                            # Left arrow key
 
@@ -66,5 +74,11 @@ class LidarViewer:
         if self.bb_frames:
             for bounding_box in self.bb_frames[self.curr_frame]:
                 self.vis.add_geometry(bounding_box)
+        if self.centroid_frames:
+            for centroid_cross in self.centroid_frames[self.curr_frame]:
+                self.vis.add_geometry(centroid_cross)
+        if self.grid_frames:
+            for grid in self.grid_frames[self.curr_frame]:
+                self.vis.add_geometry(grid)
         self.vis.poll_events()
         self.vis.update_renderer()

@@ -113,16 +113,67 @@ def get_bounding_boxes(pc_frames, dbscan_labels_frame_list, min_points=10, max_p
     return bb_frames
 
 
-def get_centroids(clustered_pc_frames, cluster_labels):
-    unique_clusters, counts = np.unique(cluster_labels, return_counts=True)                                             # Calculate centroid of clusters
+def get_centroids(clustered_pc_frames, dbscan_labels_frame_list):
+    centroids_frame_list = []
+    centroid_cross_frames = []
 
-    centroids = []
-    for frame in clustered_pc_frames:
+    for idx, frame in enumerate(clustered_pc_frames):
+        centroids = []
+        centroid_cross_list = []
+        dbscan_labels = dbscan_labels_frame_list[idx]
+        unique_clusters, counts = np.unique(dbscan_labels, return_counts=True)                                          # Calculate centroid of clusters
+        pc_array = np.asarray(frame.points)
         for cluster_id in unique_clusters:
-            if cluster_id == -1:                                                                                            # -1 is noise
+            if cluster_id == -1:                                                                                        # -1 is noise
                 continue
-            cluster_points = frame[cluster_labels == cluster_id]
+            cluster_point_idx = np.where(dbscan_labels == cluster_id)
+            cluster_points = [pc_array[point_idx] for point_idx in cluster_point_idx][0]
             centroid = np.mean(cluster_points, axis=0)
             centroids.append(centroid)
+            centroid_cross_list.append(o3d.geometry.TriangleMesh.create_coordinate_frame(size=1, origin=centroid))
+        centroids_frame_list.append(centroids)
+        centroid_cross_frames.append(centroid_cross_list)
 
-    return centroids
+    return centroids_frame_list, centroid_cross_frames
+
+
+def get_grids(clustered_pc_frames, centroids_frame_list, grid_size, grid_cell_size):
+    grids_frame_list = []
+    grids_geometries_frames = []
+
+    # --- Create a Open3D-PointCloud-Object for each centroid
+    for idx, frame in enumerate(clustered_pc_frames):
+        centroids = centroids_frame_list[idx]
+
+        # --- Create a 3D-Grid around each centroid
+        centroid_grid_point_lists = []
+        centroid_lines = []
+        for centroid in centroids:
+            x_min, x_max = centroid[0] - (grid_size*2) / 2, centroid[0] + (grid_size*2) / 2                             # TODO: Grid Size = Cluster Size + Offset
+            y_min, y_max = centroid[1] - grid_size / 2, centroid[1] + grid_size / 2
+            z_min, z_max = centroid[2] - grid_size / 2, centroid[2] + grid_size / 2
+
+            # --- Create grid points in 3D grid
+            grid_points = []
+            for x in np.arange(x_min, x_max + grid_cell_size, grid_cell_size):
+                for y in np.arange(y_min, y_max + grid_cell_size, grid_cell_size):
+                    for z in np.arange(z_min, z_max + grid_cell_size, grid_cell_size):
+                        grid_points.append([x, y, z])
+            centroid_grid_point_lists.append(grid_points)
+
+            # --- Create lines between grid points to create a mesh
+            lines = []
+            for i in range(len(grid_points)):
+                for j in range(i + 1, len(grid_points)):
+                    if np.linalg.norm(np.array(grid_points[i]) - np.array(grid_points[j])) <= (grid_cell_size + 0.005):
+                        lines.append([i, j])
+            line_set = o3d.geometry.LineSet()
+            line_set.points = o3d.utility.Vector3dVector(grid_points)
+            line_set.lines = o3d.utility.Vector2iVector(lines)
+            line_set.paint_uniform_color([255 / 255, 105 / 255, 180 / 255])
+            centroid_lines.append(line_set)
+
+        grids_frame_list.append(centroid_grid_point_lists)
+        grids_geometries_frames.append(centroid_lines)
+
+    return grids_frame_list, grids_geometries_frames

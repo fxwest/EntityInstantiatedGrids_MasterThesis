@@ -24,15 +24,17 @@ def main():
     trimmed_pc_frame_list = pcp.trim_fov(raw_pc_trace.raw_pc_frame_list, TRIM_X_AXIS, TRIM_Y_AXIS, TRIM_Z_AXIS)
     ground_pc_frame_list, outlier_pc_frame_list = pcp.get_ground_plane_ransac(trimmed_pc_frame_list, distance_threshold=0.3)
     clustered_pc_frame_list, dbscan_labels_frame_list = pcp.get_clusters_dbscan(outlier_pc_frame_list, eps=0.9, min_points=15)
+    bounding_boxes_frame_list = pcp.get_bounding_boxes(clustered_pc_frame_list, dbscan_labels_frame_list, min_points=50, max_points=20000, max_x_size=20, max_y_size=5, max_z_size=5)
 
-    # TODO: Get coordinate origin based on edge or centroid of clusters
+    # TODO: Get coordinate origin based on edge or centroid of clusters -> DONE
     # TODO: Get grid for each cluster with the determined coordinate origin
+    # TODO: Check if origin for each cluster shall be on the ground/lowest point
     # TODO: First everything is only frame based but in the second step there needs to be a history/tracking for each grid
-    #centroid_list = pcp.get_centroids(clustered_pc_frame_list, dbscan_labels)
+    centroid_list, centroid_cross_frame_list = pcp.get_centroids(clustered_pc_frame_list, dbscan_labels_frame_list)
+    grids_frame_list, grids_geometries_frames = pcp.get_grids(clustered_pc_frame_list, centroid_list, 2, grid_cell_size=0.2)
 
-    #bounding_boxes_frame_list = pcp.get_bounding_boxes(clustered_pc_frame_list, dbscan_labels_frame_list, min_points=50, max_points=20000, max_x_size=20, max_y_size=5, max_z_size=5)
     pc_frames = [ground_pc_frame_list, clustered_pc_frame_list]
-    pcv.LidarViewer(pc_frames, raw_pc_trace.num_frames, raw_pc_trace.num_max_frames) #, bounding_boxes_frame_list)
+    pcv.LidarViewer(pc_frames, raw_pc_trace.num_frames, raw_pc_trace.num_max_frames, centroid_frames=centroid_cross_frame_list, grid_frames=grids_geometries_frames, bb_frames=bounding_boxes_frame_list)
 
 
 # -------------------------------
