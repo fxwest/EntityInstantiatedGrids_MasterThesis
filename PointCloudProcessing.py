@@ -61,6 +61,7 @@ def get_ground_plane_ransac(pc_frames, distance_threshold=0.01, ransac_n=5, num_
 
 def get_clusters_dbscan(pc_frames, eps=0.1, min_points=10):
     print(f"Starting Clustering with DBSCAN")
+    labels_frame_list = []
     clustered_pc_frames = pc_frames
     for idx, frame in enumerate(clustered_pc_frames):
         pc_array = np.asarray(frame.points)
@@ -75,16 +76,18 @@ def get_clusters_dbscan(pc_frames, eps=0.1, min_points=10):
             point[:3] = NOISE_COLOR
             filtered_colors[idx] = point
         frame.colors = o3d.utility.Vector3dVector(filtered_colors[:, :3])
+        labels_frame_list.append(labels)
 
-    return clustered_pc_frames, labels
+    return clustered_pc_frames, labels_frame_list
 
 
-def get_bounding_boxes(pc_frames, dbscan_labels, min_points=10, max_points=100, max_x_size=20, max_y_size=5, max_z_size=10):
+def get_bounding_boxes(pc_frames, dbscan_labels_frame_list, min_points=10, max_points=100, max_x_size=20, max_y_size=5, max_z_size=10):
     bb_frames = []
-    for frame in pc_frames:
+    for idx, frame in enumerate(pc_frames):
         bounding_boxes = []
         pc_array = np.asarray(frame.points)
 
+        dbscan_labels = dbscan_labels_frame_list[idx]
         for label in np.unique(dbscan_labels):
             if label == -1:
                 continue                                                                                                # Skip Noise
@@ -108,3 +111,18 @@ def get_bounding_boxes(pc_frames, dbscan_labels, min_points=10, max_points=100, 
         bb_frames.append(bounding_boxes)
 
     return bb_frames
+
+
+def get_centroids(clustered_pc_frames, cluster_labels):
+    unique_clusters, counts = np.unique(cluster_labels, return_counts=True)                                             # Calculate centroid of clusters
+
+    centroids = []
+    for frame in clustered_pc_frames:
+        for cluster_id in unique_clusters:
+            if cluster_id == -1:                                                                                            # -1 is noise
+                continue
+            cluster_points = frame[cluster_labels == cluster_id]
+            centroid = np.mean(cluster_points, axis=0)
+            centroids.append(centroid)
+
+    return centroids
