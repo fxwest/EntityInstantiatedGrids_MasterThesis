@@ -3,7 +3,6 @@
 # -------------------------------
 import numpy as np
 import open3d as o3d
-import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
 
 
@@ -59,121 +58,157 @@ def get_ground_plane_ransac(pc_frames, distance_threshold=0.01, ransac_n=5, num_
     return ground_pc_frame_list, outlier_pc_frame_list
 
 
-def get_clusters_dbscan(pc_frames, eps=0.1, min_points=10):
+# -------------------------------
+# ---------- CLUSTERS -----------
+# -------------------------------
+def get_entity_cluster(pc_frames, eps=0.1, min_points=10):
     print(f"Starting Clustering with DBSCAN")
     labels_frame_list = []
-    clustered_pc_frames = pc_frames
-    for idx, frame in enumerate(clustered_pc_frames):
+    clusters_frame_list = []
+    clustered_pc_frames = []
+    for idx, frame in enumerate(pc_frames):
+        # --- Determine clusters with DBSCAN
         pc_array = np.asarray(frame.points)
         dbscan = DBSCAN(eps=eps, min_samples=min_points)
-        labels = dbscan.fit_predict(pc_array)
+        dbscan_labels = dbscan.fit_predict(pc_array)
 
-        max_label = labels.max()
+        # --- Determine number of clusters
+        max_label = dbscan_labels.max()
         print(f"Frame {idx +1} has {max_label + 1} Clusters")
-        colors = plt.get_cmap("tab10")(labels / (max_label if max_label > 0 else 1))
-        filtered_colors = colors.copy()
-        for idx, point in enumerate(colors[labels < 0]):                                                                # Noise is labeled with -1
-            point[:3] = NOISE_COLOR
-            filtered_colors[idx] = point
-        frame.colors = o3d.utility.Vector3dVector(filtered_colors[:, :3])
-        labels_frame_list.append(labels)
 
-    return clustered_pc_frames, labels_frame_list
-
-
-def get_bounding_boxes(pc_frames, dbscan_labels_frame_list, min_points=10, max_points=100, max_x_size=20, max_y_size=5, max_z_size=10):
-    bb_frames = []
-    for idx, frame in enumerate(pc_frames):
-        bounding_boxes = []
-        pc_array = np.asarray(frame.points)
-
-        dbscan_labels = dbscan_labels_frame_list[idx]
+        # --- Get clusters
+        cluster_list = []
         for label in np.unique(dbscan_labels):
-            if label == -1:
-                continue                                                                                                # Skip Noise
-
             cluster_indices = np.where(dbscan_labels == label)[0]
             cluster_points = pc_array[cluster_indices]
+            entity_cluster = EntityCluster(point_array=cluster_points, dbscan_label=label)
+            cluster_list.append(entity_cluster)
 
-            if len(cluster_points) < min_points or len(cluster_points) > max_points:                                    # Check min and max points inside BB
-                continue
+        # -- Merge Clusters to one Point Cloud
+        merged_cluster_point_array = np.concatenate([cluster.point_array for cluster in cluster_list], axis=0)
+        merged_cluster_color_map = np.concatenate([cluster.color_map for cluster in cluster_list], axis=0)
+        merged_cluster_point_cloud = o3d.geometry.PointCloud()
+        merged_cluster_point_cloud.points = o3d.utility.Vector3dVector(merged_cluster_point_array)
+        merged_cluster_point_cloud.colors = o3d.utility.Vector3dVector(merged_cluster_color_map)
 
-            min_coords = np.min(cluster_points, axis=0)
-            max_coords = np.max(cluster_points, axis=0)
+        labels_frame_list.append(dbscan_labels)
+        clusters_frame_list.append(cluster_list)
+        clustered_pc_frames.append(merged_cluster_point_cloud)
 
-            if max_coords[0] - min_coords[0] <= max_x_size and \
-               max_coords[1] - min_coords[1] <= max_y_size and \
-               max_coords[2] - min_coords[2] <= max_z_size:                                                             # Check if BB size logical
-                bounding_box = o3d.geometry.AxisAlignedBoundingBox(min_coords, max_coords)
-                bounding_box.color = BOUNDING_BOX_COLOR
-                bounding_boxes.append(bounding_box)
-
-        bb_frames.append(bounding_boxes)
-
-    return bb_frames
+    return clustered_pc_frames, labels_frame_list, clusters_frame_list
 
 
-def get_centroids(clustered_pc_frames, dbscan_labels_frame_list):
-    centroids_frame_list = []
-    centroid_cross_frames = []
+class EntityCluster:
+    noise_color = NOISE_COLOR
+    bounding_box_color = BOUNDING_BOX_COLOR
 
-    for idx, frame in enumerate(clustered_pc_frames):
-        centroids = []
-        centroid_cross_list = []
-        dbscan_labels = dbscan_labels_frame_list[idx]
-        unique_clusters, counts = np.unique(dbscan_labels, return_counts=True)                                          # Calculate centroid of clusters
-        pc_array = np.asarray(frame.points)
-        for cluster_id in unique_clusters:
-            if cluster_id == -1:                                                                                        # -1 is noise
-                continue
-            cluster_point_idx = np.where(dbscan_labels == cluster_id)
-            cluster_points = [pc_array[point_idx] for point_idx in cluster_point_idx][0]
-            centroid = np.mean(cluster_points, axis=0)
-            centroids.append(centroid)
-            centroid_cross_list.append(o3d.geometry.TriangleMesh.create_coordinate_frame(size=1, origin=centroid))
-        centroids_frame_list.append(centroids)
-        centroid_cross_frames.append(centroid_cross_list)
+    def __init__(self, point_array, dbscan_label, bb_max_size=None, bb_point_limit=None):
+        self.dbscan_label = dbscan_label
+        self.point_array = point_array
+        self.number_points = len(point_array)
+        self.point_cloud = o3d.geometry.PointCloud()
+        self.point_cloud.points = o3d.utility.Vector3dVector(point_array)
+        self.color_map = self.get_color_map()
+        self.point_cloud.colors = o3d.utility.Vector3dVector(self.color_map)
+        self.min_coords, self.max_coords = self.get_min_max_coords()
+        self.bounding_box = self.get_bounding_box(bb_max_size, bb_point_limit)
 
-    return centroids_frame_list, centroid_cross_frames
+    def get_color_map(self):
+        if self.dbscan_label == -1:
+            color = self.noise_color
+        else:
+            color = [round(np.random.choice(range(256))/255, 2) for rgb_value in range(3)]
+        color_map = [color for point in self.point_array]
+        return color_map
+
+    def get_min_max_coords(self):
+        if self.dbscan_label != -1:
+            x_point_array = self.point_array[:, 0]
+            y_point_array = self.point_array[:, 1]
+            z_point_array = self.point_array[:, 2]
+            x_min = np.min(x_point_array)
+            x_max = np.max(x_point_array)
+            y_min = np.min(y_point_array)
+            y_max = np.max(y_point_array)
+            z_min = np.min(z_point_array)
+            z_max = np.max(z_point_array)
+            min_coords = (x_min, y_min, z_min)
+            max_coords = (x_max, y_max, z_max)
+        else:
+            min_coords = None
+            max_coords = None
+        return min_coords, max_coords
+
+    def get_bounding_box(self, bb_max_size, bb_point_limit):
+        if self.dbscan_label == -1:
+            return None
+        if bb_max_size:
+            if self.max_coords[0] - self.min_coords[0] > bb_max_size[0] and \
+               self.max_coords[1] - self.min_coords[1] > bb_max_size[1] and \
+               self.max_coords[2] - self.min_coords[2] > bb_max_size[2]:                                            # Check if BB size logical
+                return None
+        if bb_point_limit:
+            if self.number_points < bb_point_limit[0] or self.number_points > bb_point_limit[1]:
+                return None
+
+        bounding_box = o3d.geometry.AxisAlignedBoundingBox(self.min_coords, self.max_coords)
+        bounding_box.color = self.bounding_box_color
+        return bounding_box
 
 
-def get_grids(clustered_pc_frames, centroids_frame_list, grid_size, grid_cell_size):
+# -------------------------------
+# -------- Entity Grids ---------
+# -------------------------------
+def get_entity_grids(clusters_frame_list):
+    print("Starting Entity Grid determination...")
     grids_frame_list = []
-    grids_geometries_frames = []
+    for cluster_frame in clusters_frame_list:
+        grid_list = []
+        for cluster in cluster_frame:
+            if cluster.dbscan_label != -1:
+                entity_grid = EntityGrid(cluster)
+                grid_list.append(entity_grid)
+            else:
+                grid_list.append(None)
+        grids_frame_list.append(grid_list)
 
-    # --- Create a Open3D-PointCloud-Object for each centroid
-    for idx, frame in enumerate(clustered_pc_frames):
-        centroids = centroids_frame_list[idx]
+    return grids_frame_list
 
-        # --- Create a 3D-Grid around each centroid
-        centroid_grid_point_lists = []
-        centroid_lines = []
-        for centroid in centroids:
-            x_min, x_max = centroid[0] - (grid_size*2) / 2, centroid[0] + (grid_size*2) / 2                             # TODO: Grid Size = Cluster Size + Offset
-            y_min, y_max = centroid[1] - grid_size / 2, centroid[1] + grid_size / 2
-            z_min, z_max = centroid[2] - grid_size / 2, centroid[2] + grid_size / 2
 
-            # --- Create grid points in 3D grid
-            grid_points = []
-            for x in np.arange(x_min, x_max + grid_cell_size, grid_cell_size):
-                for y in np.arange(y_min, y_max + grid_cell_size, grid_cell_size):
-                    for z in np.arange(z_min, z_max + grid_cell_size, grid_cell_size):
-                        grid_points.append([x, y, z])
-            centroid_grid_point_lists.append(grid_points)
+class EntityGrid:
+    coord_cross_size = 1
+    grid_color = [1.00, 0.41, 0.71]
 
-            # --- Create lines between grid points to create a mesh
-            lines = []
-            for i in range(len(grid_points)):
-                for j in range(i + 1, len(grid_points)):
-                    if np.linalg.norm(np.array(grid_points[i]) - np.array(grid_points[j])) <= (grid_cell_size + 0.005):
-                        lines.append([i, j])
-            line_set = o3d.geometry.LineSet()
-            line_set.points = o3d.utility.Vector3dVector(grid_points)
-            line_set.lines = o3d.utility.Vector2iVector(lines)
-            line_set.paint_uniform_color([255 / 255, 105 / 255, 180 / 255])
-            centroid_lines.append(line_set)
+    def __init__(self, entity_cluster, grid_cell_size=0.4, grid_offset=0.2):
+        self.entity_cluster = entity_cluster
+        self.cluster_centroid, self.centroid_coord_cross = self.get_centroid()
+        self.grid_line_set = self.get_entity_grid(grid_cell_size, grid_offset)                                          # TODO: Also return voxel, not only line set for visu
 
-        grids_frame_list.append(centroid_grid_point_lists)
-        grids_geometries_frames.append(centroid_lines)
+    def get_centroid(self):
+        centroid = np.mean(self.entity_cluster.point_array, axis=0)
+        centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=centroid)
+        return centroid, centroid_coord_cross
 
-    return grids_frame_list, grids_geometries_frames
+    def get_entity_grid(self, grid_cell_size, grid_offset):
+        x_min, x_max = self.entity_cluster.min_coords[0] - grid_offset, self.entity_cluster.max_coords[0] + grid_offset
+        y_min, y_max = self.entity_cluster.min_coords[1] - grid_offset, self.entity_cluster.max_coords[1] + grid_offset
+        z_min, z_max = self.entity_cluster.min_coords[2] - grid_offset, self.entity_cluster.max_coords[2] + grid_offset
+
+        # --- Create grid points in 3D grid
+        grid_points = []
+        for x in np.arange(x_min, x_max + grid_cell_size, grid_cell_size):
+            for y in np.arange(y_min, y_max + grid_cell_size, grid_cell_size):
+                for z in np.arange(z_min, z_max + grid_cell_size, grid_cell_size):
+                    grid_points.append([x, y, z])
+
+        # --- Create lines between grid points to create a mesh
+        lines = []
+        for i in range(len(grid_points)):
+            for j in range(i + 1, len(grid_points)):
+                if np.linalg.norm(np.array(grid_points[i]) - np.array(grid_points[j])) <= (grid_cell_size + 0.005):
+                    lines.append([i, j])
+        line_set = o3d.geometry.LineSet()
+        line_set.points = o3d.utility.Vector3dVector(grid_points)
+        line_set.lines = o3d.utility.Vector2iVector(lines)
+        line_set.paint_uniform_color(self.grid_color)
+        return line_set
