@@ -108,7 +108,7 @@ class EntityCluster:
         self.number_points = len(point_array)
         self.point_cloud = o3d.geometry.PointCloud()
         self.point_cloud.points = o3d.utility.Vector3dVector(point_array)
-        self.color_map = self.get_color_map()
+        self.color, self.color_map = self.get_color_map()
         self.point_cloud.colors = o3d.utility.Vector3dVector(self.color_map)
         self.min_coords, self.max_coords = self.get_min_max_coords()
         self.bounding_box = self.get_bounding_box(bb_max_size, bb_point_limit)
@@ -119,7 +119,7 @@ class EntityCluster:
         else:
             color = [round(np.random.choice(range(256))/255, 2) for rgb_value in range(3)]
         color_map = [color for point in self.point_array]
-        return color_map
+        return color, color_map
 
     def get_min_max_coords(self):
         if self.dbscan_label != -1:
@@ -159,14 +159,15 @@ class EntityCluster:
 # -------------------------------
 # -------- Entity Grids ---------
 # -------------------------------
-def get_entity_grids(clusters_frame_list):
+def get_entity_grids(clusters_frame_list, trimmed_pc_frame_list):
     print("Starting Entity Grid determination...")
     grids_frame_list = []
-    for cluster_frame in clusters_frame_list:
+    for frame_idx, cluster_frame in enumerate(clusters_frame_list):
         grid_list = []
         for cluster in cluster_frame:
             if cluster.dbscan_label != -1:
-                entity_grid = EntityGrid(cluster)
+                point_cloud_all_points = np.asarray(trimmed_pc_frame_list[frame_idx].points)
+                entity_grid = EntityGrid(cluster, point_cloud_all_points)
                 grid_list.append(entity_grid)
             else:
                 grid_list.append(None)
@@ -179,20 +180,25 @@ class EntityGrid:
     coord_cross_size = 1
     grid_color = [1.00, 0.41, 0.71]
 
-    def __init__(self, entity_cluster, grid_cell_size=0.4, grid_offset=0.2):
+    def __init__(self, entity_cluster, point_cloud_all_points, grid_offset=0.2):
         self.entity_cluster = entity_cluster
-        self.cluster_centroid, self.centroid_coord_cross = self.get_centroid()
-        self.grid_line_set = self.get_entity_grid(grid_cell_size, grid_offset)                                          # TODO: Also return voxel, not only line set for visu
+        self.cluster_centroid, self.centroid_coord_cross = self.get_centroid()                                          # TODO: Muss im Grid berücksichtigt werden
+        self.voxel_grid = self.get_entity_grid(grid_offset, point_cloud_all_points)
 
     def get_centroid(self):
         centroid = np.mean(self.entity_cluster.point_array, axis=0)
         centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=centroid)
         return centroid, centroid_coord_cross
 
-    def get_entity_grid(self, grid_cell_size, grid_offset):
+    def get_entity_grid(self, grid_offset, point_cloud_all_points):
         x_min, x_max = self.entity_cluster.min_coords[0] - grid_offset, self.entity_cluster.max_coords[0] + grid_offset
         y_min, y_max = self.entity_cluster.min_coords[1] - grid_offset, self.entity_cluster.max_coords[1] + grid_offset
         z_min, z_max = self.entity_cluster.min_coords[2] - grid_offset, self.entity_cluster.max_coords[2] + grid_offset
+
+        voxel_grid = VoxelGrid(start_pos_skosy=(x_min, y_min, z_min), end_pos_skosy=(x_max, y_max, z_max),
+                               point_cloud_all_points=point_cloud_all_points, point_color=self.entity_cluster.color)
+        return voxel_grid
+
 
         # --- Create grid points in 3D grid
         grid_points = []
@@ -212,3 +218,60 @@ class EntityGrid:
         line_set.lines = o3d.utility.Vector2iVector(lines)
         line_set.paint_uniform_color(self.grid_color)
         return line_set
+
+
+class VoxelGrid:
+    def __init__(self, start_pos_skosy, end_pos_skosy, point_cloud_all_points, point_color, cell_size=0.4):
+        self.start_pos_skosy = start_pos_skosy                                                                          # Front Down Left (x, y, z)
+        self.end_pos_skosy = end_pos_skosy                                                                              # Rear Up Right (x, y, z)
+        self.x_cells_pos = np.arange(self.start_pos_skosy[0], self.end_pos_skosy[0] + cell_size, cell_size)             # Including last point
+        self.y_cells_pos = np.arange(self.start_pos_skosy[1], self.end_pos_skosy[1] + cell_size, cell_size)
+        self.z_cells_pos = np.arange(self.start_pos_skosy[2], self.end_pos_skosy[2] + cell_size, cell_size)
+        self.grid_dim = (len(self.x_cells_pos)-1, len(self.y_cells_pos)-1, len(self.z_cells_pos)-1)                     # Grid dimensions (number of cells per axis)
+        self.grid_array = np.empty(shape=self.grid_dim, dtype=object)
+
+        for x_idx, x_axis_row in enumerate(self.grid_array):
+            for y_idx, y_axis_row in enumerate(x_axis_row):
+                for z_idx, voxel_cell in enumerate(y_axis_row):
+                    voxel_pos = (x_idx, y_idx, z_idx)
+                    voxel_start_pos_skosy = (self.x_cells_pos[x_idx], self.y_cells_pos[y_idx], self.z_cells_pos[z_idx])
+                    voxel_end_pos_skosy = (self.x_cells_pos[x_idx+1], self.y_cells_pos[y_idx+1], self.z_cells_pos[z_idx+1])
+                    voxel_point_indices = np.where((point_cloud_all_points[:, 0] > voxel_start_pos_skosy[0])
+                                                   & (point_cloud_all_points[:, 0] < voxel_end_pos_skosy[0])
+                                                   & (point_cloud_all_points[:, 1] > voxel_start_pos_skosy[1])
+                                                   & (point_cloud_all_points[:, 1] < voxel_end_pos_skosy[1])
+                                                   & (point_cloud_all_points[:, 2] > voxel_start_pos_skosy[2])
+                                                   & (point_cloud_all_points[:, 2] < voxel_end_pos_skosy[2]))
+                    voxel_point_array = point_cloud_all_points[voxel_point_indices]
+                    voxel_cell = VoxelCell(voxel_pos=voxel_pos, start_pos_skosy=voxel_start_pos_skosy,
+                                           end_pos_skosy=voxel_end_pos_skosy, point_array=voxel_point_array,
+                                           point_color=point_color)
+                    self.grid_array[x_idx, y_idx, z_idx] = voxel_cell
+
+
+class VoxelCell:
+    visu_border_color_filled = [1.00, 0.41, 0.71]
+    visu_border_color_empty = [0.20, 0.58, 1.00]
+
+    def __repr__(self):
+        return f"VoxelCell({str(self.voxel_pos)}, {self.num_points})"
+
+    def __str__(self):
+        return f"Voxel Cell at grid position {str(self.voxel_pos)} with {self.num_points} Points."
+
+    def __init__(self, voxel_pos, start_pos_skosy, end_pos_skosy, point_array, point_color):
+        self.voxel_pos = voxel_pos
+        self.start_pos_skosy = start_pos_skosy                                                                          # Front Down Left (x, y, z)
+        self.end_pos_skosy = end_pos_skosy                                                                              # Rear Up Right (x, y, z)
+        self.point_array = point_array
+        self.num_points = len(point_array)
+        self.point_cloud = o3d.geometry.PointCloud()
+        self.point_cloud.points = o3d.utility.Vector3dVector(point_array)
+        self.point_cloud.colors = o3d.utility.Vector3dVector([point_color for point in self.point_array])
+        #self.rel_pos_coord
+
+        self.visu_cell = o3d.geometry.AxisAlignedBoundingBox(self.start_pos_skosy, self.end_pos_skosy)
+        if self.num_points > 0:                                                                                         # TODO: Status der Zelle (belegt, Noise, ML, etc.)
+            self.visu_cell.color = self.visu_border_color_filled
+        else:
+            self.visu_cell.color = self.visu_border_color_empty

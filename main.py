@@ -24,20 +24,40 @@ def main():
     trimmed_pc_frame_list = pcp.trim_fov(raw_pc_trace.raw_pc_frame_list, TRIM_X_AXIS, TRIM_Y_AXIS, TRIM_Z_AXIS)
     ground_pc_frame_list, outlier_pc_frame_list = pcp.get_ground_plane_ransac(trimmed_pc_frame_list, distance_threshold=0.3)
     clustered_pc_frame_list, dbscan_labels_frame_list, clusters_frame_list = pcp.get_entity_cluster(outlier_pc_frame_list, eps=0.9, min_points=15)
-    grids_frame_list = pcp.get_entity_grids(clusters_frame_list)
+    grids_frame_list = pcp.get_entity_grids(clusters_frame_list, trimmed_pc_frame_list)
 
     # TODO -> DONE: Get coordinate origin based on edge or centroid of clusters
     # TODO -> DONE: Get grid for each cluster with the determined coordinate origin
     # TODO -> DONE: Grid size is cluster size + offset
     # TODO: Origin for each cluster shall be on the ground/lowest point of the cluster (remove RANSAC to get also ground considered? lowers cell is always ground?)
-    # TODO: Fill grid cell, if cell is filled (return Voxel)
+    # TODO: Fill grid cell, if cell is filled (return Voxel) -> DONE
+    # TODO: Add occluded status to Voxel (if occupied cells are blocking the cells behind)
     # TODO: First everything is only frame based but in the second step there needs to be a history/tracking for each grid/cluster with a KALMAN Filter e.g.
 
     pc_frames = [ground_pc_frame_list, clustered_pc_frame_list]
     centroid_cross_frame_list = [[entity_grid.centroid_coord_cross for entity_grid in grid_frame if entity_grid] for grid_frame in grids_frame_list]
-    grids_line_set_frame_list = [[entity_grid.grid_line_set for entity_grid in grid_frame if entity_grid] for grid_frame in grids_frame_list]
+
+    flag_show_empty_cells = False
+    voxel_cell_visu_frames_list = []
+    for idx, grid_frame in enumerate(grids_frame_list):
+        voxel_cell_visu_list = []
+        for entity_grid in grid_frame:
+            if entity_grid is None:
+                continue
+            for voxel_cell_x in entity_grid.voxel_grid.grid_array:
+                for voxel_cell_y in voxel_cell_x:
+                    for voxel_cell in voxel_cell_y:
+                        if voxel_cell.num_points > 0:                                                                   # TODO: Wenn kollisionsrelevant
+                            voxel_cell_visu_list.insert(0, voxel_cell.visu_cell)                                        # An Anfang der Liste, damit belegte Zellen die anderen übermalen
+                        else:
+                            if flag_show_empty_cells:
+                                voxel_cell_visu_list.append(voxel_cell.visu_cell)
+        print(f"Frame {idx + 1} has {len(voxel_cell_visu_list)} Voxels")
+        voxel_cell_visu_frames_list.append(voxel_cell_visu_list)
+
+
     bounding_boxes_frames = [[cluster.bounding_box for cluster in cluster_frame if cluster.bounding_box] for cluster_frame in clusters_frame_list]
-    pcv.LidarViewer(pc_frames, raw_pc_trace.num_frames, raw_pc_trace.num_max_frames, centroid_frames=centroid_cross_frame_list, grid_frames=grids_line_set_frame_list, bb_frames=bounding_boxes_frames)
+    pcv.LidarViewer(pc_frames, raw_pc_trace.num_frames, raw_pc_trace.num_max_frames, centroid_frames=centroid_cross_frame_list, grid_frames=voxel_cell_visu_frames_list) #, bb_frames=bounding_boxes_frames)
 
 
 # -------------------------------
