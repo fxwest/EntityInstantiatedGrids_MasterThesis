@@ -290,7 +290,7 @@ class CellStatus(Enum):
 class VoxelCell:
     visu_border_color_filled = [1.00, 0.41, 0.71]
     visu_border_color_empty = [0.20, 0.58, 1.00]
-    visu_border_color_noise = [0.40, 0.80, 0.40]
+    visu_border_color_noise = NOISE_COLOR
 
     def __repr__(self):
         return f"VoxelCell({str(self.voxel_pos)}, {self.num_points})"
@@ -310,23 +310,31 @@ class VoxelCell:
         #self.rel_pos_coord
 
         self.visu_cell = o3d.geometry.AxisAlignedBoundingBox(self.start_pos_skosy, self.end_pos_skosy)
+        self.visu_cell.color = self.visu_border_color_empty
+        self.cell_status = CellStatus.FREE
         if self.num_points > 0:                                                                                         # TODO: Status der Zelle (belegt, Noise, ML, etc.)
             self.voxel_centroid = np.mean(self.point_array, axis=0)
             if self.is_geometrically_ordered(self.point_array, self.voxel_centroid) and self.num_points > 1:
-                self.visu_cell.color = self.visu_border_color_filled
-                self.cell_status = CellStatus.OCCUPIED
+                if self.has_vertical_extend(self.point_array):
+                    self.visu_cell.color = self.visu_border_color_filled
+                    self.cell_status = CellStatus.OCCUPIED
             else:
                 self.visu_cell.color = self.visu_border_color_noise
                 self.cell_status = CellStatus.NOISE
-        else:
-            self.visu_cell.color = self.visu_border_color_empty
-            self.cell_status = CellStatus.FREE
 
     @staticmethod
     def is_geometrically_ordered(points, voxel_center, variance_threshold=0.01):
         distances = np.linalg.norm(points - voxel_center, axis=1)
         variance = np.var(distances)
-        if variance < variance_threshold:
+        if variance <= variance_threshold:
             return True
         else:
             return False
+
+    @staticmethod
+    def has_vertical_extend(points, variance_threshold=0.001):
+        variance = np.var(points[:, 2])
+        if variance <= variance_threshold:
+            return False
+        else:
+            return True
