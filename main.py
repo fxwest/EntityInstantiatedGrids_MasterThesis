@@ -12,7 +12,7 @@ import PointCloudProcessing as pcp
 NUM_MAX_FRAMES = 5
 PCD_FOLDER = r"C:\Users\Q554273\OneDrive - BMW Group\Selbststudium\_Master\LokalisierungBewegungsplanungFusion\Fallstudie\Data\2011_09_26_drive_0052_extract\2011_09_26\2011_09_26_drive_0052_extract\velodyne_points\data"
 TRIM_X_AXIS = [1.5, 15]
-TRIM_Y_AXIS = [-1.5, 1.6]
+TRIM_Y_AXIS = [-1.5, 5.6]
 TRIM_Z_AXIS = [-2.5, 3]                                                                                                 # Height of LiDAR is 1.73m
 
 
@@ -30,7 +30,7 @@ def main():
     # TODO -> DONE: Get grid for each cluster with the determined coordinate origin
     # TODO -> DONE: Grid size is cluster size + offset
     # TODO: Origin for each cluster shall be on the ground/lowest point of the cluster (remove RANSAC to get also ground considered? lowers cell is always ground?)
-    # TODO: Fill grid cell, if cell is filled (return Voxel) -> DONE
+    # TODO -> DONE: Fill grid cell, if cell is filled (return Voxel)
     # TODO: Add occluded status to Voxel (if occupied cells are blocking the cells behind)
     # TODO: First everything is only frame based but in the second step there needs to be a history/tracking for each grid/cluster with a KALMAN Filter e.g.
 
@@ -47,7 +47,7 @@ def main():
             for voxel_cell_x in entity_grid.voxel_grid.grid_array:
                 for voxel_cell_y in voxel_cell_x:
                     for voxel_cell in voxel_cell_y:
-                        if voxel_cell.num_points > 0:                                                                   # TODO: Wenn kollisionsrelevant
+                        if not voxel_cell.cell_status == pcp.CellStatus.FREE:
                             voxel_cell_visu_list.insert(0, voxel_cell.visu_cell)                                        # An Anfang der Liste, damit belegte Zellen die anderen übermalen
                         else:
                             if flag_show_empty_cells:

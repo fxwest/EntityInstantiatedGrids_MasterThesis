@@ -3,6 +3,7 @@
 # -------------------------------
 import numpy as np
 import open3d as o3d
+from enum import Enum
 from sklearn.cluster import DBSCAN
 
 
@@ -61,7 +62,7 @@ def get_ground_plane_ransac(pc_frames, distance_threshold=0.01, ransac_n=5, num_
 # -------------------------------
 # ---------- CLUSTERS -----------
 # -------------------------------
-def get_entity_cluster(pc_frames, eps=0.1, min_points=10):
+def get_entity_cluster(pc_frames, eps=0.1, min_points=10, max_dist=0.5):
     print(f"Starting Clustering with DBSCAN")
     labels_frame_list = []
     clusters_frame_list = []
@@ -82,7 +83,20 @@ def get_entity_cluster(pc_frames, eps=0.1, min_points=10):
             cluster_indices = np.where(dbscan_labels == label)[0]
             cluster_points = pc_array[cluster_indices]
             entity_cluster = EntityCluster(point_array=cluster_points, dbscan_label=label)
-            cluster_list.append(entity_cluster)
+            if entity_cluster.dbscan_label != -1:                                                                       # Don't add noise clusters
+                if idx == 0:
+                    entity_cluster.tracker_id = entity_cluster.dbscan_label                                             # Add DBSCAN-Label as Tracker ID in first frame
+                else:                                                                                                   # TODO: Use KALMAN-Filter for Tracking, separate in other Function
+                    prev_cluster_list = clusters_frame_list[idx-1]
+                    for prev_cluster in prev_cluster_list:
+                        dist = entity_cluster.euclidean_distance(prev_cluster.centroid)
+                        if dist <= max_dist:
+                            entity_cluster.tracker_id = prev_cluster.tracker_id
+                            entity_cluster.copy_color(prev_cluster)
+                            continue
+                    if not entity_cluster.tracker_id:
+                        entity_cluster.tracker_id = entity_cluster.dbscan_label                                         # If no matching prev cluster was found -> new track # TODO: Must be unique over all frames
+                cluster_list.append(entity_cluster)
 
         # -- Merge Clusters to one Point Cloud
         merged_cluster_point_array = np.concatenate([cluster.point_array for cluster in cluster_list], axis=0)
@@ -102,10 +116,18 @@ class EntityCluster:
     noise_color = NOISE_COLOR
     bounding_box_color = BOUNDING_BOX_COLOR
 
+    def __repr__(self):
+        return f"EntityCluster({str(self.min_coords), str(self.max_coords)}, {self.number_points}, {self.tracker_id})"
+
+    def __str__(self):
+        return f"Entity Cluster with Tracker ID {str(self.tracker_id)} and {self.number_points} Points."
+
     def __init__(self, point_array, dbscan_label, bb_max_size=None, bb_point_limit=None):
+        self.tracker_id = None
         self.dbscan_label = dbscan_label
         self.point_array = point_array
         self.number_points = len(point_array)
+        self.centroid = self.get_centroid()
         self.point_cloud = o3d.geometry.PointCloud()
         self.point_cloud.points = o3d.utility.Vector3dVector(point_array)
         self.color, self.color_map = self.get_color_map()
@@ -113,11 +135,14 @@ class EntityCluster:
         self.min_coords, self.max_coords = self.get_min_max_coords()
         self.bounding_box = self.get_bounding_box(bb_max_size, bb_point_limit)
 
-    def get_color_map(self):
-        if self.dbscan_label == -1:
-            color = self.noise_color
+    def get_color_map(self, copy_color=None):
+        if copy_color:
+            color = copy_color
         else:
-            color = [round(np.random.choice(range(256))/255, 2) for rgb_value in range(3)]
+            if self.dbscan_label == -1:
+                color = self.noise_color
+            else:
+                color = [round(np.random.choice(range(256))/255, 2) for rgb_value in range(3)]
         color_map = [color for point in self.point_array]
         return color, color_map
 
@@ -155,6 +180,17 @@ class EntityCluster:
         bounding_box.color = self.bounding_box_color
         return bounding_box
 
+    def get_centroid(self):
+        centroid = np.mean(self.point_array, axis=0)
+        return centroid
+
+    def euclidean_distance(self, second_centroid):
+        return np.sqrt((second_centroid[0] - self.centroid[0])**2 + (second_centroid[1] - self.centroid[1])**2 + (second_centroid[2] - self.centroid[2])**2)
+
+    def copy_color(self, second_centroid):
+        self.color, self.color_map = self.get_color_map(second_centroid.color)
+        self.point_cloud.colors = o3d.utility.Vector3dVector(self.color_map)
+
 
 # -------------------------------
 # -------- Entity Grids ---------
@@ -180,15 +216,10 @@ class EntityGrid:
     coord_cross_size = 1
     grid_color = [1.00, 0.41, 0.71]
 
-    def __init__(self, entity_cluster, point_cloud_all_points, grid_offset=0.2):
+    def __init__(self, entity_cluster, point_cloud_all_points, grid_offset=0.4):
         self.entity_cluster = entity_cluster
-        self.cluster_centroid, self.centroid_coord_cross = self.get_centroid()                                          # TODO: Muss im Grid berücksichtigt werden
+        self.centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.centroid)
         self.voxel_grid = self.get_entity_grid(grid_offset, point_cloud_all_points)
-
-    def get_centroid(self):
-        centroid = np.mean(self.entity_cluster.point_array, axis=0)
-        centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=centroid)
-        return centroid, centroid_coord_cross
 
     def get_entity_grid(self, grid_offset, point_cloud_all_points):
         x_min, x_max = self.entity_cluster.min_coords[0] - grid_offset, self.entity_cluster.max_coords[0] + grid_offset
@@ -249,9 +280,17 @@ class VoxelGrid:
                     self.grid_array[x_idx, y_idx, z_idx] = voxel_cell
 
 
+class CellStatus(Enum):
+    FREE = 0
+    OCCUPIED = 1
+    OCCLUDED = 2
+    NOISE = 3
+
+
 class VoxelCell:
     visu_border_color_filled = [1.00, 0.41, 0.71]
     visu_border_color_empty = [0.20, 0.58, 1.00]
+    visu_border_color_noise = [0.40, 0.80, 0.40]
 
     def __repr__(self):
         return f"VoxelCell({str(self.voxel_pos)}, {self.num_points})"
@@ -272,6 +311,22 @@ class VoxelCell:
 
         self.visu_cell = o3d.geometry.AxisAlignedBoundingBox(self.start_pos_skosy, self.end_pos_skosy)
         if self.num_points > 0:                                                                                         # TODO: Status der Zelle (belegt, Noise, ML, etc.)
-            self.visu_cell.color = self.visu_border_color_filled
+            self.voxel_centroid = np.mean(self.point_array, axis=0)
+            if self.is_geometrically_ordered(self.point_array, self.voxel_centroid) and self.num_points > 1:
+                self.visu_cell.color = self.visu_border_color_filled
+                self.cell_status = CellStatus.OCCUPIED
+            else:
+                self.visu_cell.color = self.visu_border_color_noise
+                self.cell_status = CellStatus.NOISE
         else:
             self.visu_cell.color = self.visu_border_color_empty
+            self.cell_status = CellStatus.FREE
+
+    @staticmethod
+    def is_geometrically_ordered(points, voxel_center, variance_threshold=0.01):
+        distances = np.linalg.norm(points - voxel_center, axis=1)
+        variance = np.var(distances)
+        if variance < variance_threshold:
+            return True
+        else:
+            return False

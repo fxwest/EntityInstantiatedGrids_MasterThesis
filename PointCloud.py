@@ -46,10 +46,13 @@ class PointCloudFrame:
     """
     Base Class for all Point Cloud Frames
     """
+    octree_max_depth = 8
+
     def __init__(self, data_frame, frame_idx):
         self.frame_idx = frame_idx
         self.num_points = len(data_frame)
         self.pcdXYZ = o3d.geometry.PointCloud()
+        self.octree = o3d.geometry.Octree(max_depth=self.octree_max_depth)
         print(f'Number of Points: {self.num_points}')
 
 
@@ -62,3 +65,4 @@ class RawPointCloudFrame(PointCloudFrame):
         raw_pc = (data_frame[:, 0:3])
         self.refl = data_frame[:, 3]
         self.pcdXYZ.points = o3d.utility.Vector3dVector(raw_pc)
+        self.octree.convert_from_point_cloud(self.pcdXYZ)
