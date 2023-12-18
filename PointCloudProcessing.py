@@ -93,6 +93,7 @@ def get_entity_cluster(pc_frames, eps=0.1, min_points=10, max_dist=0.5):
                         if dist <= max_dist:
                             entity_cluster.tracker_id = prev_cluster.tracker_id
                             entity_cluster.copy_color(prev_cluster)
+                            entity_cluster.tracker_age = prev_cluster.tracker_age + 1
                             continue
                     if not entity_cluster.tracker_id:
                         entity_cluster.tracker_id = entity_cluster.dbscan_label                                         # If no matching prev cluster was found -> new track # TODO: Must be unique over all frames
@@ -117,13 +118,14 @@ class EntityCluster:
     bounding_box_color = BOUNDING_BOX_COLOR
 
     def __repr__(self):
-        return f"EntityCluster({str(self.min_coords), str(self.max_coords)}, {self.number_points}, {self.tracker_id})"
+        return f"EntityCluster({str(self.min_coords), str(self.max_coords)}, NumPoints:{self.number_points}, ID:{self.tracker_id}, Age:{self.tracker_age})"
 
     def __str__(self):
         return f"Entity Cluster with Tracker ID {str(self.tracker_id)} and {self.number_points} Points."
 
     def __init__(self, point_array, dbscan_label, bb_max_size=None, bb_point_limit=None):
         self.tracker_id = None
+        self.tracker_age = 0
         self.dbscan_label = dbscan_label
         self.point_array = point_array
         self.number_points = len(point_array)
@@ -216,8 +218,16 @@ class EntityGrid:
     coord_cross_size = 1
     grid_color = [1.00, 0.41, 0.71]
 
+    def __repr__(self):
+        return f"EntityGrid(ID:{str(self.tracker_id)}, Age:{str(self.tracker_age)})"
+
+    def __str__(self):
+        return f"Entity Grid with Tracker ID {str(self.tracker_id)} and Tracker Age {str(self.tracker_age)}."
+
     def __init__(self, entity_cluster, point_cloud_all_points, grid_offset=0.4):
         self.entity_cluster = entity_cluster
+        self.tracker_id = entity_cluster.tracker_id
+        self.tracker_age = entity_cluster.tracker_age
         self.centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.centroid)
         self.voxel_grid = self.get_entity_grid(grid_offset, point_cloud_all_points)
 
