@@ -1,6 +1,7 @@
 # -------------------------------
 # ----------- Import ------------
 # -------------------------------
+import math
 import numpy as np
 import open3d as o3d
 from enum import Enum
@@ -14,6 +15,8 @@ GROUND_COLOR = [0.8, 0.8, 0.8]
 OUTLIER_COLOR = [1.0, 0, 0]
 NOISE_COLOR = [0.5, 0.5, 0.5]
 BOUNDING_BOX_COLOR = [0, 1, 0]
+PKW_SIZE = [2.50, 4.00, 2.50]                                                                                           # width, length, height
+LKW_SIZE = [3.00, 18.75, 4.00]
 
 
 # -------------------------------
@@ -214,9 +217,18 @@ def get_entity_grids(clusters_frame_list, trimmed_pc_frame_list):
     return grids_frame_list
 
 
+class VehicleType(Enum):
+    UNKNOWN = 0
+    PKW = 1
+    LKW = 2
+
+
 class EntityGrid:
     coord_cross_size = 1
     grid_color = [1.00, 0.41, 0.71]
+    width_tol = 0.2
+    length_tol = 1.0
+    height_tol = 0.5
 
     def __repr__(self):
         return f"EntityGrid(ID:{str(self.tracker_id)}, Age:{str(self.tracker_age)})"
@@ -225,40 +237,57 @@ class EntityGrid:
         return f"Entity Grid with Tracker ID {str(self.tracker_id)} and Tracker Age {str(self.tracker_age)}."
 
     def __init__(self, entity_cluster, point_cloud_all_points, grid_offset=0.4):
+        self.vehicle_type = VehicleType.UNKNOWN
         self.entity_cluster = entity_cluster
         self.tracker_id = entity_cluster.tracker_id
         self.tracker_age = entity_cluster.tracker_age
         self.centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.centroid)
-        self.voxel_grid = self.get_entity_grid(grid_offset, point_cloud_all_points)
+        grid_borders = self.get_vehicle_model(grid_offset)
+        self.voxel_grid = self.get_entity_grid(grid_borders, point_cloud_all_points)
 
-    def get_entity_grid(self, grid_offset, point_cloud_all_points):
-        x_min, x_max = self.entity_cluster.min_coords[0] - grid_offset, self.entity_cluster.max_coords[0] + grid_offset
-        y_min, y_max = self.entity_cluster.min_coords[1] - grid_offset, self.entity_cluster.max_coords[1] + grid_offset
-        z_min, z_max = self.entity_cluster.min_coords[2] - grid_offset, self.entity_cluster.max_coords[2] + grid_offset
+    def get_vehicle_model(self, grid_offset):
+        cluster_width = self.entity_cluster.max_coords[0] - self.entity_cluster.min_coords[0]
+        cluster_length = self.entity_cluster.max_coords[0] - self.entity_cluster.min_coords[0]
+        cluster_height = self.entity_cluster.max_coords[0] - self.entity_cluster.min_coords[0]
 
-        voxel_grid = VoxelGrid(start_pos_skosy=(x_min, y_min, z_min), end_pos_skosy=(x_max, y_max, z_max),
+        pkw_count = 0
+        lkw_count = 0
+        if math.isclose(cluster_width, PKW_SIZE[0], abs_tol=self.width_tol):
+            pkw_count += 1
+        elif math.isclose(cluster_width, LKW_SIZE[0], abs_tol=self.width_tol):
+            lkw_count += 1
+        if math.isclose(cluster_length, PKW_SIZE[1], abs_tol=self.length_tol):
+            pkw_count += 1
+        elif math.isclose(cluster_length, LKW_SIZE[1], abs_tol=self.length_tol):
+            lkw_count += 1
+        if math.isclose(cluster_height, PKW_SIZE[2], abs_tol=self.height_tol):
+            pkw_count += 1
+        elif math.isclose(cluster_height, LKW_SIZE[2], abs_tol=self.height_tol):
+            lkw_count += 1
+
+        if pkw_count > 0 or lkw_count > 0:
+            if pkw_count > lkw_count:
+                self.vehicle_type = VehicleType.PKW
+                x_min, x_max = self.entity_cluster.min_coords[0] - PKW_SIZE[0]/2 - grid_offset, self.entity_cluster.max_coords[0] + PKW_SIZE[0]/2 + grid_offset
+                y_min, y_max = self.entity_cluster.min_coords[1] - grid_offset, self.entity_cluster.min_coords[1] + PKW_SIZE[1] + grid_offset
+                z_min, z_max = self.entity_cluster.min_coords[2] - grid_offset, self.entity_cluster.max_coords[2] + PKW_SIZE[2] + grid_offset
+            else:
+                self.vehicle_type = VehicleType.LKW
+                x_min, x_max = self.entity_cluster.min_coords[0] - LKW_SIZE[0] / 2 - grid_offset, self.entity_cluster.max_coords[0] + LKW_SIZE[0] / 2 + grid_offset
+                y_min, y_max = self.entity_cluster.min_coords[1] - grid_offset, self.entity_cluster.min_coords[1] + LKW_SIZE[1] + grid_offset
+                z_min, z_max = self.entity_cluster.min_coords[2] - grid_offset, self.entity_cluster.max_coords[2] + LKW_SIZE[2] + grid_offset
+        else:
+            x_min, x_max = self.entity_cluster.min_coords[0] - grid_offset, self.entity_cluster.max_coords[0] + grid_offset
+            y_min, y_max = self.entity_cluster.min_coords[1] - grid_offset, self.entity_cluster.max_coords[1] + grid_offset
+            z_min, z_max = self.entity_cluster.min_coords[2] - grid_offset, self.entity_cluster.max_coords[2] + grid_offset
+
+        print(f"Assumed Vehicle Model: {self.vehicle_type}")
+        return [x_min, x_max, y_min, y_max, z_min, z_max]
+
+    def get_entity_grid(self, grid_borders, point_cloud_all_points):
+        voxel_grid = VoxelGrid(start_pos_skosy=(grid_borders[0], grid_borders[2], grid_borders[4]), end_pos_skosy=(grid_borders[1], grid_borders[3], grid_borders[5]),
                                point_cloud_all_points=point_cloud_all_points, point_color=self.entity_cluster.color)
         return voxel_grid
-
-
-        # --- Create grid points in 3D grid
-        grid_points = []
-        for x in np.arange(x_min, x_max + grid_cell_size, grid_cell_size):
-            for y in np.arange(y_min, y_max + grid_cell_size, grid_cell_size):
-                for z in np.arange(z_min, z_max + grid_cell_size, grid_cell_size):
-                    grid_points.append([x, y, z])
-
-        # --- Create lines between grid points to create a mesh
-        lines = []
-        for i in range(len(grid_points)):
-            for j in range(i + 1, len(grid_points)):
-                if np.linalg.norm(np.array(grid_points[i]) - np.array(grid_points[j])) <= (grid_cell_size + 0.005):
-                    lines.append([i, j])
-        line_set = o3d.geometry.LineSet()
-        line_set.points = o3d.utility.Vector3dVector(grid_points)
-        line_set.lines = o3d.utility.Vector2iVector(lines)
-        line_set.paint_uniform_color(self.grid_color)
-        return line_set
 
 
 class VoxelGrid:
