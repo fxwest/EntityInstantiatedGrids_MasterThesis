@@ -70,6 +70,7 @@ def get_entity_cluster(pc_frames, eps=0.1, min_points=10, max_dist=0.5):
     labels_frame_list = []
     clusters_frame_list = []
     clustered_pc_frames = []
+    used_tracker_ids = []
     for idx, frame in enumerate(pc_frames):
         # --- Determine clusters with DBSCAN
         pc_array = np.asarray(frame.points)
@@ -89,6 +90,7 @@ def get_entity_cluster(pc_frames, eps=0.1, min_points=10, max_dist=0.5):
             if entity_cluster.dbscan_label != -1:                                                                       # Don't add noise clusters
                 if idx == 0:
                     entity_cluster.tracker_id = entity_cluster.dbscan_label                                             # Add DBSCAN-Label as Tracker ID in first frame
+                    used_tracker_ids.append(entity_cluster.tracker_id)                                                  # Add Traker ID to list to avoid multiple usage of same IDs
                 else:                                                                                                   # TODO: Use KALMAN-Filter for Tracking, separate in other Function
                     prev_cluster_list = clusters_frame_list[idx-1]
                     for prev_cluster in prev_cluster_list:
@@ -99,7 +101,9 @@ def get_entity_cluster(pc_frames, eps=0.1, min_points=10, max_dist=0.5):
                             entity_cluster.tracker_age = prev_cluster.tracker_age + 1
                             continue
                     if not entity_cluster.tracker_id:
-                        entity_cluster.tracker_id = entity_cluster.dbscan_label                                         # If no matching prev cluster was found -> new track # TODO: Must be unique over all frames
+                        entity_cluster.tracker_id = used_tracker_ids[-1] + 1                                            # If no matching prev cluster was found -> new track
+                        entity_cluster.tracker_age = 0
+                        used_tracker_ids.append(entity_cluster.tracker_id)
                 cluster_list.append(entity_cluster)
 
         # -- Merge Clusters to one Point Cloud

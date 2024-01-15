@@ -29,7 +29,7 @@ def main():
     # TODO -> DONE: Get coordinate origin based on edge or centroid of clusters
     # TODO -> DONE: Get grid for each cluster with the determined coordinate origin
     # TODO -> DONE: Grid size is cluster size + offset
-    # TODO: Origin for each cluster shall be on the ground/lowest point of the cluster (remove RANSAC to get also ground considered? lowers cell is always ground?)
+    # TODO -> DONE: Origin for each cluster shall be on the ground/lowest point of the cluster (remove RANSAC to get also ground considered? lowers cell is always ground?)
     # TODO -> DONE: Fill grid cell, if cell is filled (return Voxel)
     # TODO: Add occluded status to Voxel (if occupied cells are blocking the cells behind)
     # TODO: First everything is only frame based but in the second step there needs to be a history/tracking for each grid/cluster with a KALMAN Filter e.g.
