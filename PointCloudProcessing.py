@@ -117,7 +117,7 @@ def get_entity_cluster(pc_frames, eps=0.1, min_points=10, max_dist=0.5):
         clusters_frame_list.append(cluster_list)
         clustered_pc_frames.append(merged_cluster_point_cloud)
 
-    return clustered_pc_frames, labels_frame_list, clusters_frame_list
+    return clustered_pc_frames, labels_frame_list, clusters_frame_list, used_tracker_ids
 
 
 class EntityCluster:
