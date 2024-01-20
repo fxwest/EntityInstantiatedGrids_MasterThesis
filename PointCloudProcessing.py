@@ -1,6 +1,7 @@
 # -------------------------------
 # ----------- Import ------------
 # -------------------------------
+import copy
 import math
 import numpy as np
 import open3d as o3d
@@ -91,7 +92,7 @@ def get_entity_cluster(pc_frames, eps=0.1, min_points=10, max_dist=0.5):
                 if idx == 0:
                     entity_cluster.tracker_id = entity_cluster.dbscan_label                                             # Add DBSCAN-Label as Tracker ID in first frame
                     used_tracker_ids.append(entity_cluster.tracker_id)                                                  # Add Traker ID to list to avoid multiple usage of same IDs
-                else:                                                                                                   # TODO: Use KALMAN-Filter for Tracking, separate in other Function
+                else:
                     prev_cluster_list = clusters_frame_list[idx-1]
                     for prev_cluster in prev_cluster_list:
                         dist = entity_cluster.euclidean_distance(prev_cluster.centroid)
@@ -209,13 +210,17 @@ def get_entity_grids(clusters_frame_list, trimmed_pc_frame_list):
     grids_frame_list = []
     for frame_idx, cluster_frame in enumerate(clusters_frame_list):
         grid_list = []
+        point_cloud_all_points = np.asarray(trimmed_pc_frame_list[frame_idx].points)
         for cluster in cluster_frame:
             if cluster.dbscan_label != -1:
-                point_cloud_all_points = np.asarray(trimmed_pc_frame_list[frame_idx].points)
-                entity_grid = EntityGrid(cluster, point_cloud_all_points)
-                grid_list.append(entity_grid)
-            else:
-                grid_list.append(None)
+                if cluster.tracker_age > 0:
+                    for grid in grids_frame_list[frame_idx - 1]:
+                        if grid.tracker_id == cluster.tracker_id:
+                            grid.update_entity_grid(cluster, point_cloud_all_points)
+                            grid_list.append(copy.deepcopy(grid))
+                else:
+                    entity_grid = EntityGrid(cluster, point_cloud_all_points)
+                    grid_list.append(entity_grid)
         grids_frame_list.append(grid_list)
 
     return grids_frame_list
@@ -241,13 +246,15 @@ class EntityGrid:
         return f"Entity Grid with Tracker ID {str(self.tracker_id)} and Tracker Age {str(self.tracker_age)}."
 
     def __init__(self, entity_cluster, point_cloud_all_points, grid_offset=0.4):
+        self.voxel_grid_history = []
         self.vehicle_type = VehicleType.UNKNOWN
-        self.entity_cluster = entity_cluster
+        self.grid_offset = grid_offset
         self.tracker_id = entity_cluster.tracker_id
+        self.entity_cluster = entity_cluster
         self.tracker_age = entity_cluster.tracker_age
         self.centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.centroid)
         grid_borders = self.get_vehicle_model(grid_offset)
-        self.voxel_grid = self.get_entity_grid(grid_borders, point_cloud_all_points)
+        self.voxel_grid = self.get_entity_grid(grid_borders, point_cloud_all_points, self.voxel_grid_history)
 
     def get_vehicle_model(self, grid_offset):
         cluster_width = self.entity_cluster.max_coords[0] - self.entity_cluster.min_coords[0]
@@ -288,20 +295,42 @@ class EntityGrid:
         print(f"Assumed Vehicle Model: {self.vehicle_type}")
         return [x_min, x_max, y_min, y_max, z_min, z_max]
 
-    def get_entity_grid(self, grid_borders, point_cloud_all_points):
+    def get_entity_grid(self, grid_borders, point_cloud_all_points, voxel_grid_history):
         voxel_grid = VoxelGrid(start_pos_skosy=(grid_borders[0], grid_borders[2], grid_borders[4]), end_pos_skosy=(grid_borders[1], grid_borders[3], grid_borders[5]),
-                               point_cloud_all_points=point_cloud_all_points, point_color=self.entity_cluster.color)
+                               point_cloud_all_points=point_cloud_all_points, point_color=self.entity_cluster.color,
+                               history=voxel_grid_history)
         return voxel_grid
+
+    def update_entity_grid(self, entity_cluster, point_cloud_all_points):
+        self.entity_cluster = entity_cluster
+        self.tracker_age = entity_cluster.tracker_age
+        self.centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.centroid)
+
+        # TODO: Grenzen nicht nur vom Cluster abhängig machen, möglichst stabil halten (relativer Abstand zum Ankerpunkt sollte konstant bleiben)
+        grid_borders = self.get_vehicle_model(self.grid_offset)
+
+        self.voxel_grid = self.get_entity_grid(grid_borders, point_cloud_all_points, self.voxel_grid_history)
+        self.voxel_grid_history.append(self.voxel_grid)
 
 
 class VoxelGrid:
-    def __init__(self, start_pos_skosy, end_pos_skosy, point_cloud_all_points, point_color, cell_size=0.4):
-        self.start_pos_skosy = start_pos_skosy                                                                          # Front Down Left (x, y, z)
-        self.end_pos_skosy = end_pos_skosy                                                                              # Rear Up Right (x, y, z)
-        self.x_cells_pos = np.arange(self.start_pos_skosy[0], self.end_pos_skosy[0] + cell_size, cell_size)             # Including last point
-        self.y_cells_pos = np.arange(self.start_pos_skosy[1], self.end_pos_skosy[1] + cell_size, cell_size)
-        self.z_cells_pos = np.arange(self.start_pos_skosy[2], self.end_pos_skosy[2] + cell_size, cell_size)
-        self.grid_dim = (len(self.x_cells_pos)-1, len(self.y_cells_pos)-1, len(self.z_cells_pos)-1)                     # Grid dimensions (number of cells per axis)
+    def __init__(self, start_pos_skosy, end_pos_skosy, point_cloud_all_points, point_color, history, cell_size=0.4):
+
+        if len(history) > 0:
+            self.grid_dim = history[0].grid_dim
+            self.start_pos_skosy = start_pos_skosy                                                                      # Front Down Left (x, y, z)
+            self.end_pos_skosy = end_pos_skosy                                                                          # Rear Up Right (x, y, z)
+            # --- Take dim from first grid
+            self.x_cells_pos = np.array([self.start_pos_skosy[0] + (cell_size * cell_count) for cell_count in range(1, self.grid_dim[0] + 2)])
+            self.y_cells_pos = np.array([self.start_pos_skosy[1] + (cell_size * cell_count) for cell_count in range(1, self.grid_dim[1] + 2)])
+            self.z_cells_pos = np.array([self.start_pos_skosy[2] + (cell_size * cell_count) for cell_count in range(1, self.grid_dim[2] + 2)])
+        else:
+            self.start_pos_skosy = start_pos_skosy                                                                      # Front Down Left (x, y, z)
+            self.end_pos_skosy = end_pos_skosy                                                                          # Rear Up Right (x, y, z)
+            self.x_cells_pos = np.arange(self.start_pos_skosy[0], self.end_pos_skosy[0] + cell_size, cell_size)         # Including last point
+            self.y_cells_pos = np.arange(self.start_pos_skosy[1], self.end_pos_skosy[1] + cell_size, cell_size)
+            self.z_cells_pos = np.arange(self.start_pos_skosy[2], self.end_pos_skosy[2] + cell_size, cell_size)
+            self.grid_dim = (len(self.x_cells_pos) - 1, len(self.y_cells_pos) - 1, len(self.z_cells_pos) - 1)           # Grid dimensions (number of cells per axis) TODO: Erster Frame entscheided Grid größe
         self.grid_array = np.empty(shape=self.grid_dim, dtype=object)
 
         for x_idx, x_axis_row in enumerate(self.grid_array):
@@ -317,9 +346,14 @@ class VoxelGrid:
                                                    & (point_cloud_all_points[:, 2] > voxel_start_pos_skosy[2])
                                                    & (point_cloud_all_points[:, 2] < voxel_end_pos_skosy[2]))
                     voxel_point_array = point_cloud_all_points[voxel_point_indices]
+                    if len(history) > 0:
+                        cell_history = [frame.grid_array[x_idx, y_idx, z_idx] for frame in history]
+                    else:
+                        cell_history = None
                     voxel_cell = VoxelCell(voxel_pos=voxel_pos, start_pos_skosy=voxel_start_pos_skosy,
                                            end_pos_skosy=voxel_end_pos_skosy, point_array=voxel_point_array,
-                                           point_color=point_color)
+                                           point_color=point_color,
+                                           cell_history=cell_history)
                     self.grid_array[x_idx, y_idx, z_idx] = voxel_cell
 
 
@@ -328,11 +362,13 @@ class CellStatus(Enum):
     OCCUPIED = 1
     OCCLUDED = 2
     NOISE = 3
+    CONFIRMED_OCCUPIED = 4
 
 
 class VoxelCell:
     visu_border_color_filled = [1.00, 0.41, 0.71]
     visu_border_color_empty = [0.20, 0.58, 1.00]
+    visu_border_color_confirmed = [1.00, 0.00, 0.00]
     visu_border_color_noise = NOISE_COLOR
 
     def __repr__(self):
@@ -341,7 +377,7 @@ class VoxelCell:
     def __str__(self):
         return f"Voxel Cell at grid position {str(self.voxel_pos)} with {self.num_points} Points."
 
-    def __init__(self, voxel_pos, start_pos_skosy, end_pos_skosy, point_array, point_color):
+    def __init__(self, voxel_pos, start_pos_skosy, end_pos_skosy, point_array, point_color, cell_history):
         self.voxel_pos = voxel_pos
         self.start_pos_skosy = start_pos_skosy                                                                          # Front Down Left (x, y, z)
         self.end_pos_skosy = end_pos_skosy                                                                              # Rear Up Right (x, y, z)
@@ -364,6 +400,19 @@ class VoxelCell:
             else:
                 self.visu_cell.color = self.visu_border_color_noise
                 self.cell_status = CellStatus.NOISE
+
+        # --- 3 out of 5 confirmation for Confirmed Occupied (aggregation of cells status)
+        if cell_history is not None:
+            if len(cell_history) >= 4:
+                occupied_count = 0
+                for hist in cell_history[-4:]:                                                                           # Loop through last 4 cells of history
+                    if hist.cell_status == CellStatus.OCCUPIED:
+                        occupied_count += 1
+                if self.cell_status == CellStatus.OCCUPIED:
+                    occupied_count += 1
+                if occupied_count >= 3:
+                    self.cell_status = CellStatus.CONFIRMED_OCCUPIED
+                    self.visu_cell.color = self.visu_border_color_confirmed
 
     @staticmethod
     def is_geometrically_ordered(points, voxel_center, variance_threshold=0.01):
