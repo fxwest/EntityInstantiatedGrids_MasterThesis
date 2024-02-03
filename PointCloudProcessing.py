@@ -208,7 +208,7 @@ class VoxelCell:
         if self.num_points > 0:                                                                                         # TODO: Status der Zelle (belegt, Noise, ML, etc.)
             self.voxel_centroid = np.mean(self.point_array, axis=0)
             if self.is_geometrically_ordered(self.point_array, self.voxel_centroid) and self.num_points > 1:
-                if self.has_vertical_extend(self.point_array):
+                if self.has_vertical_extend(self.point_array) or self.voxel_pos[2] > 1:                                 # Consider height to not classify the even roof as ground/noise
                     self.visu_cell.color = self.visu_border_color_filled
                     self.cell_status = CellStatus.OCCUPIED
             else:
