@@ -12,55 +12,10 @@ from sklearn.cluster import DBSCAN
 # -------------------------------
 # -------- Hyperparameter -------
 # -------------------------------
-GROUND_COLOR = [0.8, 0.8, 0.8]
-OUTLIER_COLOR = [1.0, 0, 0]
 NOISE_COLOR = [0.5, 0.5, 0.5]
 BOUNDING_BOX_COLOR = [0, 1, 0]
 PKW_SIZE = [2.50, 4.00, 2.50]                                                                                           # width, length, height
 LKW_SIZE = [3.00, 18.75, 4.00]
-
-
-# -------------------------------
-# ---------- TRIM FOV -----------
-# -------------------------------
-def trim_fov(pc_frames, x_axis, y_axis, z_axis):
-    print(f"Starting FOV Trimming")
-    trimmed_pc_frames = []
-    for frame in pc_frames:
-        trimmed_pc = []
-        pc_array = np.asarray(frame.pcdXYZ.points)
-        for point in pc_array:
-            if point[0] < x_axis[1] and point[0] > x_axis[0]:             # Filter X
-                if point[1] < y_axis[1] and point[1] > y_axis[0]:         # Filter Y
-                    if point[2] < z_axis[1] and point[2] > z_axis[0]:     # Filter Z
-                        trimmed_pc.append(point)
-        pc = o3d.geometry.PointCloud()
-        pc.points = o3d.utility.Vector3dVector(trimmed_pc)
-        trimmed_pc_frames.append(pc)
-    return trimmed_pc_frames
-
-
-# -------------------------------
-# ----------- RANSAC ------------
-# -------------------------------
-def get_ground_plane_ransac(pc_frames, distance_threshold=0.01, ransac_n=5, num_iterations=100):
-    ground_pc_frame_list = []
-    outlier_pc_frame_list = []
-    print(f"Starting Ground Segmentation with RANSAC")
-    for frame in pc_frames:
-        # --- Run RANSAC
-        plane_model, inliers = frame.segment_plane(distance_threshold=distance_threshold, ransac_n=ransac_n, num_iterations=num_iterations)
-        ground_pc = frame.select_by_index(inliers)
-        outlier_pc = frame.select_by_index(inliers, invert=True)
-
-        # --- Segment Color
-        ground_pc.paint_uniform_color(GROUND_COLOR)
-        outlier_pc.paint_uniform_color(OUTLIER_COLOR)
-
-        ground_pc_frame_list.append(ground_pc)
-        outlier_pc_frame_list.append(outlier_pc)
-
-    return ground_pc_frame_list, outlier_pc_frame_list
 
 
 # -------------------------------

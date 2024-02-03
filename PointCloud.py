@@ -16,7 +16,7 @@ class PointCloudTrace:
     def __init__(self, folder_path, num_max_frames=0):
         self.folder_path = folder_path
         self.num_max_frames = num_max_frames
-        self.num_frames, self.raw_pc_frame_list = self.load_raw_point_cloud()
+        self.num_total_frames, self.pc_frame_list = self.load_raw_point_cloud()
 
     def load_raw_point_cloud(self):
         """
@@ -41,10 +41,26 @@ class PointCloudTrace:
 
         return num_frames, raw_pc_frame_list
 
+    def trim_pc_fov(self, x_axis, y_axis, z_axis):
+        """
+        Trims the Field of View of all Point Cloud Frames.
+        """
+        print(f"Starting FOV Trimming")
+        for frame_idx, pc_frame in enumerate(self.pc_frame_list):
+            trimmed_pc = []
+            trimmed_refl = []
+            for point_idx, point in enumerate(pc_frame.point_array):
+                if x_axis[1] > point[0] > x_axis[0]:                                                                    # Filter X
+                    if y_axis[1] > point[1] > y_axis[0]:                                                                # Filter Y
+                        if z_axis[1] > point[2] > z_axis[0]:                                                            # Filter Z
+                            trimmed_pc.append(point)
+                            trimmed_refl.append(pc_frame.refl[point_idx])
+            self.pc_frame_list[frame_idx] = TrimmedPointCloudFrame(pc_frame, trimmed_pc, trimmed_refl)
+
 
 class PointCloudFrame:
     """
-    Base Class for all Point Cloud Frames
+    Base Class for all Point Cloud Frames.
     """
     octree_max_depth = 8
 
@@ -66,3 +82,20 @@ class RawPointCloudFrame(PointCloudFrame):
         self.refl = data_frame[:, 3]
         self.pcdXYZ.points = o3d.utility.Vector3dVector(raw_pc)
         self.octree.convert_from_point_cloud(self.pcdXYZ)
+        self.point_array = np.asarray(self.pcdXYZ.points)
+
+
+class TrimmedPointCloudFrame(PointCloudFrame):
+    """
+    Trimmed Point Cloud Frame.
+    """
+    def __init__(self, raw_pc_frame, trimmed_pc, trimmed_refl):
+        self.frame_idx = raw_pc_frame.frame_idx
+        self.pcdXYZ = raw_pc_frame.pcdXYZ
+        self.pcdXYZ.points = o3d.utility.Vector3dVector(trimmed_pc)
+        self.octree = raw_pc_frame.octree
+        self.octree.convert_from_point_cloud(self.pcdXYZ)
+        self.refl = np.array(trimmed_refl)
+        self.point_array = np.asarray(self.pcdXYZ.points)
+        self.num_points = len(self.point_array)
+

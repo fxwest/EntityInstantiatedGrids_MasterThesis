@@ -9,13 +9,13 @@ import open3d as o3d
 # -------- LiDAR Viewer ---------
 # -------------------------------
 class LidarViewer:
-    def __init__(self, pc_frames, num_frames, num_max_frames, bb_frames=None, centroid_frames=None, grid_frames=None):
-        self.pc_frames = pc_frames
+    def __init__(self, pc_trace, bb_frames=None, centroid_frames=None, grid_frames=None):
+        self.pc_frame_list = pc_trace.pc_frame_list
         self.bb_frames = bb_frames
         self.centroid_frames = centroid_frames
         self.grid_frames = grid_frames
-        self.num_frames = num_frames
-        self.num_max_frames = num_max_frames
+        self.num_frames = pc_trace.num_total_frames
+        self.num_max_frames = pc_trace.num_max_frames
         self.curr_frame = 0
 
         # --- Define the visualization window and add the point cloud
@@ -23,8 +23,7 @@ class LidarViewer:
         self.vis.create_window(width=1280, height=720)
         opt = self.vis.get_render_option()
         opt.background_color = np.asarray([0, 0, 0])
-        for point_cloud in self.pc_frames:
-            self.vis.add_geometry(point_cloud[self.curr_frame])
+        self.vis.add_geometry(self.pc_frame_list[self.curr_frame].pcdXYZ)
         if self.bb_frames:
             for bounding_box in self.bb_frames[self.curr_frame]:
                 self.vis.add_geometry(bounding_box)
@@ -69,8 +68,7 @@ class LidarViewer:
 
     def update_point_cloud(self):
         self.vis.clear_geometries()
-        for frame in self.pc_frames:
-            self.vis.add_geometry(frame[self.curr_frame])
+        self.vis.add_geometry(self.pc_frame_list[self.curr_frame].pcdXYZ)
         if self.bb_frames:
             for bounding_box in self.bb_frames[self.curr_frame]:
                 self.vis.add_geometry(bounding_box)
