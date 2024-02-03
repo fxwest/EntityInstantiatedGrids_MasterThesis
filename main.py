@@ -7,6 +7,7 @@ import PointCloudProcessing as pcp
 import ClusterTracking as ct
 
 from SegmentedPointCloud import segment_ground_plane
+from ClusteredPointCloud import panoptic_segmentation
 
 
 # -------------------------------
@@ -25,9 +26,9 @@ TRIM_Z_AXIS = [-2.5, 3]                                                         
 def main():
     pc_trace = pc.PointCloudTrace(PCD_FOLDER, NUM_MAX_FRAMES)
     pc_trace.trim_pc_fov(TRIM_X_AXIS, TRIM_Y_AXIS, TRIM_Z_AXIS)
-    pc_trace = segment_ground_plane(pc_trace, distance_threshold=0.1, ransac_n=5, num_iterations=100)                   # distance_threshold is a trade-off between Ground FP and Small Obstacle FN
+    segmented_pc_trace = segment_ground_plane(pc_trace, distance_threshold=0.15, ransac_n=5, num_iterations=100)         # distance_threshold is a trade-off between Ground FP and Small Obstacle FN
+    clustered_pc_trace = panoptic_segmentation(segmented_pc_trace, eps=0.9, min_points=100)
 
-    #clustered_pc_frame_list, dbscan_labels_frame_list, clusters_frame_list, used_tracker_ids = pcp.get_entity_cluster(outlier_pc_frame_list, eps=0.9, min_points=15)
     #clusters_frame_list = ct.get_cluster_tracks(clusters_frame_list, used_tracker_ids)
     #grids_frame_list = pcp.get_entity_grids(clusters_frame_list, trimmed_pc_frame_list)
 
@@ -62,7 +63,7 @@ def main():
 
 
     #bounding_boxes_frames = [[cluster.bounding_box for cluster in cluster_frame if cluster.bounding_box] for cluster_frame in clusters_frame_list]
-    pcv.LidarViewer(pc_trace) #, centroid_frames=centroid_cross_frame_list, grid_frames=voxel_cell_visu_frames_list) #, bb_frames=bounding_boxes_frames)
+    pcv.LidarViewer(clustered_pc_trace) #, centroid_frames=centroid_cross_frame_list, grid_frames=voxel_cell_visu_frames_list) #, bb_frames=bounding_boxes_frames)
 
 
 # -------------------------------
