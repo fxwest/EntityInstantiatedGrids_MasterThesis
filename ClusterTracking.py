@@ -40,74 +40,95 @@ H = np.array(                                                                   
 # -------------------------------
 # -------- KALMAN Filter --------
 # -------------------------------
-def get_cluster_tracks(clusters_frame_list, used_tracker_ids):
-    # --- Get Tracker/Cluster_ID x Frame_ID Matrix
-    cluster_id_frames = [[None for frame in clusters_frame_list] for tracker_id in used_tracker_ids]
-    for frame_idx, frame in enumerate(clusters_frame_list):
-        for tracker_id in used_tracker_ids:
-            for cluster in frame:
-                if cluster.tracker_id == tracker_id:
-                    cluster_id_frames[tracker_id][frame_idx] = cluster
+def get_cluster_tracks(clustered_pc_trace, max_dist=0.5, plot_kalman_results=False):
+    used_tracker_ids = []
+    entity_cluster_tracks = []
+    print("Starting Cluster Tracking with KALMAN-Filter")
+    for frame_idx, frame_pc in enumerate(clustered_pc_trace.pc_frame_list):
+        if frame_idx == 0:
+            for entity_cluster in frame_pc.entity_cluster_list:
+                used_tracker_ids.append(entity_cluster.tracker_id)                                                      # Keep DBSCAN-Label as Tracker ID in first frame
+                entity_cluster_tracks.append(ClusterTrack(entity_cluster.tracker_id, entity_cluster.centroid))          # Init new tracks for each cluster in first frame
+        else:
+            prev_clusters_list = [entity_cluster for entity_cluster in clustered_pc_trace.pc_frame_list[frame_idx-1].entity_cluster_list]
+            for entity_cluster in frame_pc.entity_cluster_list:
+                found_track = False
+                for cluster_track in entity_cluster_tracks:
+                    dist = entity_cluster.euclidean_distance(cluster_track.predicted_centroid)                          # Distance between measurement and prediction
+                    if dist <= max_dist:
+                        entity_cluster.tracker_id = cluster_track.tracker_id
+                        for prev_cluster in prev_clusters_list:
+                            if prev_cluster.tracker_id == cluster_track.tracker_id:
+                                entity_cluster.copy_color(prev_cluster)
+                                entity_cluster.tracker_age = prev_cluster.tracker_age + 1
+                                cluster_track.update_track(entity_cluster.centroid)
+                                entity_cluster.centroid = cluster_track.estimated_centroid
+                                found_track = True
+                                break
+                        if found_track:
+                            break
+                if found_track:
+                    continue
+                else:
+                    entity_cluster.tracker_id = used_tracker_ids[-1] + 1                                                # If no matching prev cluster was found -> new track
+                    entity_cluster.tracker_age = 0
+                    used_tracker_ids.append(entity_cluster.tracker_id)
+                    entity_cluster_tracks.append(ClusterTrack(entity_cluster.tracker_id, entity_cluster.centroid))
+        frame_pc.merge_point_clouds()
 
-    # --- Update Centroid Coordinates with estimated coordinates from KALMAN-Filter
-    for cluster_id, cluster_frames in enumerate(cluster_id_frames):
-        cluster_frames_filtered = [i for i in cluster_frames if i is not None]
-        updated_cluster_frames = ClusterTrack(cluster_frames_filtered)
-        for frame_idx, frame in enumerate(clusters_frame_list):
-            for cluster in frame:
-                if cluster.tracker_id == cluster_id:
-                    cluster.centroid = updated_cluster_frames.estimated_centroids[0]                                    # Take first estimated coordinate
-                    updated_cluster_frames.estimated_centroids.pop(0)                                                   # Drop first estimated coordinate to handle frames before tracker_id
+    if plot_kalman_results:
+        for cluster_track in entity_cluster_tracks:
+            cluster_track.plot_filter_result()
 
-    return clusters_frame_list
+    return clustered_pc_trace
 
 
 class ClusterTrack:
-    def __init__(self, cluster_frames):
-        self.measured_centroids = np.array([frame.centroid for frame in cluster_frames])
-        x0 = np.array([self.measured_centroids[0, 0], self.measured_centroids[0, 1], self.measured_centroids[0, 2],
-                       0, 0, 0])                                                                                        # Starting coordinates and velocity
+    def __init__(self, tracker_id, measured_centroid):
+        self.predicted_centroid = None
+        self.estimated_centroid = None
+        self.measured_centroids = []
+        self.estimated_centroids = []
+        x0 = np.array([measured_centroid[0], measured_centroid[1], measured_centroid[2], 0, 0, 0])                      # Starting coordinates and velocity
         self.x = x0
         self.P = P0
         self.xs = []
         self.Ps = []
-        self.track_cluster(cluster_frames)
-        self.plot_filter_result()
-        self.estimated_centroids = [[xs[0], xs[1], xs[2]] for xs in self.xs]
-        self.update_centroids(cluster_frames)
+        self.tracker_id = tracker_id
+        self.update_track(measured_centroid)
 
-    def track_cluster(self, cluster_frames):
-        for i in range(len(cluster_frames)):
-            # --- Prediction Step
-            self.x = A @ self.x                                                                                         # State estimation
-            self.P = A @ self.P @ A.T + Q                                                                               # Covariance estimation
+    def update_track(self, measured_centroid):
+        self.measured_centroids.append(measured_centroid)
+        self.estimated_centroid = self.x[:4 -1]
+        self.estimated_centroids.append(self.estimated_centroid)
 
-            # --- Update Step
-            z = cluster_frames[i].centroid                                                                              # Cluster measurement of first frame
-            y = z - H @ self.x
-            S = H @ self.P @ H.T + R
-            K = self.P @ H.T @ np.linalg.inv(S)                                                                         # KALMAN-Gain
-            self.x = self.x + K @ y                                                                                     # State update
-            self.P = (np.eye(6) - K @ H) @ self.P                                                                       # Covariance update
+        # --- Prediction Step
+        self.x = A @ self.x                                                                                             # State estimation
+        self.P = A @ self.P @ A.T + Q                                                                                   # Covariance estimation
 
-            # --- Save update
-            self.xs.append(self.x)
-            self.Ps.append(self.P)
+        # --- Update Step
+        z = measured_centroid
+        y = z - H @ self.x
+        S = H @ self.P @ H.T + R
+        K = self.P @ H.T @ np.linalg.inv(S)                                                                             # KALMAN-Gain
+        self.x = self.x + K @ y                                                                                         # State update
+        self.P = (np.eye(6) - K @ H) @ self.P                                                                           # Covariance update
+        self.xs.append(self.x)
+        self.Ps.append(self.P)
 
-        self.xs = np.array(self.xs)                                                                                     # Save as array
-        self.Ps = np.array(self.Ps)
-
-    def update_centroids(self, cluster_frames):
-        for frame_idx, cluster in enumerate(cluster_frames):
-            cluster.centroid = self.estimated_centroids[frame_idx]
-        return cluster_frames
+        self.predicted_centroid = self.xs[-1][:3]
 
     def plot_filter_result(self):
+        xs = np.array(self.xs)
+        self.estimated_centroids = np.array(self.estimated_centroids)
+        self.measured_centroids = np.array(self.measured_centroids)
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d')
-        ax.scatter(self.xs[:, 0], self.xs[:, 1], self.xs[:, 2], c='r', label='Estimated Position')
-        ax.scatter(self.measured_centroids[:, 0], self.measured_centroids[:, 1], self.measured_centroids[:, 2], c='g',
-                   label='Measured Position')
+        ax.scatter(self.estimated_centroids[:, 0], self.estimated_centroids[:, 1], self.estimated_centroids[:, 2], c='y',
+                   marker='v', label='Estimated Position')
+        ax.scatter(xs[:, 0], xs[:, 1], xs[:, 2], c='r', marker='x', label='Predicted Position')
+        ax.scatter(self.measured_centroids[:, 0], self.measured_centroids[:, 1], self.measured_centroids[:, 2], c='g', label='Measured Position')
+
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_zlabel('z')

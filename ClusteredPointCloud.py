@@ -19,9 +19,8 @@ BOUNDING_BOX_COLOR = [0, 1, 0]
 # -------------------------------
 def panoptic_segmentation(pc_trace, eps=0.9, min_points=15):
     print(f"Starting Clustering with DBSCAN")
-    used_tracker_ids = []
     for frame_idx, pc_frame in enumerate(pc_trace.pc_frame_list):
-        pc_trace.pc_frame_list[frame_idx] = PanopticPointCloudFrame(pc_frame, used_tracker_ids, eps, min_points)
+        pc_trace.pc_frame_list[frame_idx] = PanopticPointCloudFrame(pc_frame, eps, min_points)
 
     return pc_trace
 
@@ -33,7 +32,7 @@ class PanopticPointCloudFrame(PointCloudFrame):
     """
     Clustered and Segmented Point Cloud, i.e. Panoptic Segmented Point Cloud Frame.
     """
-    def __init__(self, segmented_pc_frame, used_tracker_ids, eps, min_points):
+    def __init__(self, segmented_pc_frame, eps, min_points):
         # --- Complete Point Cloud
         self.frame_idx = segmented_pc_frame.frame_idx
         self.pcdXYZ = segmented_pc_frame.pcdXYZ
@@ -50,7 +49,7 @@ class PanopticPointCloudFrame(PointCloudFrame):
         self.refl_ground = segmented_pc_frame.refl_ground
 
         # --- Run DBSCAN
-        self.entity_cluster_list, self.num_clusters, noise_indices = self.get_entity_clusters(used_tracker_ids, segmented_pc_frame, eps, min_points)
+        self.entity_cluster_list, self.num_clusters, noise_indices = self.get_entity_clusters(segmented_pc_frame, eps, min_points)
         print(f"Frame {self.frame_idx} has {self.num_clusters} Clusters")
 
         # --- Noise Points
@@ -70,6 +69,28 @@ class PanopticPointCloudFrame(PointCloudFrame):
             self.pcdXYZ_noise.paint_uniform_color(NOISE_COLOR)
 
         # -- Merge Clusters Noise and Ground to one Point Cloud
+        self.merge_point_clouds()
+
+    def get_entity_clusters(self, segmented_pc_frame, eps, min_points):
+        dbscan = DBSCAN(eps=eps, min_samples=min_points)
+        dbscan_labels = dbscan.fit_predict(segmented_pc_frame.point_array_outlier)
+        num_clusters = dbscan_labels.max() + 1
+
+        # --- Get Entity Clusters for each DBSCAN Label
+        cluster_list = []
+        noise_indices = None
+        for label in np.unique(dbscan_labels):
+            if label != -1:                                                                                             # Don't add noise clusters
+                cluster_indices = np.where(dbscan_labels == label)[0]
+                cluster_points = segmented_pc_frame.point_array_outlier[cluster_indices]
+                entity_cluster = EntityCluster(point_array=cluster_points, dbscan_label=label)                          # TODO: Also pass refl values?
+                entity_cluster.tracker_id = entity_cluster.dbscan_label                                                 # Add DBSCAN-Label as Tracker ID
+                cluster_list.append(entity_cluster)
+            else:
+                noise_indices = np.where(dbscan_labels == label)[0]
+        return cluster_list, num_clusters, noise_indices
+
+    def merge_point_clouds(self):
         merged_list = [cluster.point_array for cluster in self.entity_cluster_list]
         merged_list.extend([self.point_array_noise, self.point_array_ground])
         merged_cluster_point_array = np.concatenate(merged_list, axis=0)
@@ -83,42 +104,6 @@ class PanopticPointCloudFrame(PointCloudFrame):
         self.octree.convert_from_point_cloud(self.pcdXYZ)
         self.point_array = np.asarray(self.pcdXYZ.points)
         self.refl = None                                                                                                # TODO: Can be added, if refl is added to EntityCluster Class
-
-    def get_entity_clusters(self, used_tracker_ids, segmented_pc_frame, eps, min_points, max_dist=0.5):
-        dbscan = DBSCAN(eps=eps, min_samples=min_points)
-        dbscan_labels = dbscan.fit_predict(segmented_pc_frame.point_array_outlier)
-        num_clusters = dbscan_labels.max() + 1
-
-        # --- Get Entity Clusters for each DBSCAN Label
-        cluster_list = []
-        noise_indices = None
-        for label in np.unique(dbscan_labels):
-            if label != -1:                                                                                             # Don't add noise clusters
-                cluster_indices = np.where(dbscan_labels == label)[0]
-                cluster_points = segmented_pc_frame.point_array_outlier[cluster_indices]
-                entity_cluster = EntityCluster(point_array=cluster_points, dbscan_label=label)                          # TODO: Also pass refl values?
-                if self.frame_idx == 0:
-                    entity_cluster.tracker_id = entity_cluster.dbscan_label                                             # Add DBSCAN-Label as Tracker ID in first frame
-                    used_tracker_ids.append(entity_cluster.tracker_id)                                                  # Add Traker ID to list to avoid multiple usage of same IDs
-                else:
-                    pass
-                   # prev_cluster_list = clusters_frame_list[idx - 1]
-                   # for prev_cluster in prev_cluster_list:
-                   #     dist = entity_cluster.euclidean_distance(prev_cluster.centroid)
-                   #     if dist <= max_dist:
-                   #         entity_cluster.tracker_id = prev_cluster.tracker_id
-                   #         entity_cluster.copy_color(prev_cluster)
-                   #         entity_cluster.tracker_age = prev_cluster.tracker_age + 1
-                   #         continue
-                    #if not entity_cluster.tracker_id:
-                   #     entity_cluster.tracker_id = used_tracker_ids[-1] + 1  # If no matching prev cluster was found -> new track
-                   #     entity_cluster.tracker_age = 0
-                   #     used_tracker_ids.append(entity_cluster.tracker_id)
-                cluster_list.append(entity_cluster)
-            else:
-                noise_indices = np.where(dbscan_labels == label)[0]
-        return cluster_list, num_clusters, noise_indices
-
 
 class EntityCluster:
     noise_color = NOISE_COLOR
