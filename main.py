@@ -29,16 +29,8 @@ def main():
     segmented_pc_trace = segment_ground_plane(pc_trace, distance_threshold=0.15, ransac_n=5, num_iterations=100)         # distance_threshold is a trade-off between Ground FP and Small Obstacle FN
     clustered_pc_trace = panoptic_segmentation(segmented_pc_trace, eps=0.9, min_points=100)
     tracked_pc_trace = get_cluster_tracks(clustered_pc_trace, max_dist=0.5, plot_kalman_results=False)
+    grids_frame_list = pcp.get_entity_grids(tracked_pc_trace)
 
-    # TODO: Adapt to new structure START
-    clusters_frame_list = []
-    pc_frame_list = []
-    for frame in tracked_pc_trace.pc_frame_list:
-        clusters_frame_list.append(frame.entity_cluster_list)
-        pc_frame_list.append(frame.pcdXYZ)
-    # TODO: Adapt to new structure END
-
-    grids_frame_list = pcp.get_entity_grids(clusters_frame_list, pc_frame_list)
     centroid_cross_frame_list = [[entity_grid.centroid_coord_cross for entity_grid in grid_frame if entity_grid] for grid_frame in grids_frame_list]
 
     flag_show_empty_cells = False

@@ -19,13 +19,13 @@ LKW_SIZE = [3.00, 18.75, 4.00]
 # -------------------------------
 # -------- Entity Grids ---------
 # -------------------------------
-def get_entity_grids(clusters_frame_list, trimmed_pc_frame_list):
+def get_entity_grids(tracked_pc_trace):
     print("Starting Entity Grid determination...")
     grids_frame_list = []
-    for frame_idx, cluster_frame in enumerate(clusters_frame_list):
+    for frame_idx, cluster_frame in enumerate(tracked_pc_trace.pc_frame_list):
         grid_list = []
-        point_cloud_all_points = np.asarray(trimmed_pc_frame_list[frame_idx].points)
-        for cluster in cluster_frame:
+        point_cloud_all_points = np.asarray(cluster_frame.pcdXYZ.points)
+        for cluster in cluster_frame.entity_cluster_list:
             if cluster.dbscan_label != -1:
                 if cluster.tracker_age > 0:
                     for grid in grids_frame_list[frame_idx - 1]:
