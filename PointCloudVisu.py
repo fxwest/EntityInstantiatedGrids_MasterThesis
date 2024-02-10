@@ -39,9 +39,7 @@ class LidarViewer:
         self.vis.register_key_callback(262, self.next_frame)                                                            # Right arrow key
         self.vis.register_key_callback(263, self.prev_frame)                                                            # Left arrow key
 
-        self.vis.poll_events()
         self.vis.run()
-        self.vis.destroy_window()
 
     def exit_viewer(self, vis=None):
         if vis:
@@ -68,15 +66,17 @@ class LidarViewer:
 
     def update_point_cloud(self):
         self.vis.clear_geometries()
-        self.vis.add_geometry(self.pc_frame_list[self.curr_frame].pcdXYZ)
+        self.vis.add_geometry(self.pc_frame_list[self.curr_frame].pcdXYZ, reset_bounding_box=False)
         if self.bb_frames:
             for bounding_box in self.bb_frames[self.curr_frame]:
-                self.vis.add_geometry(bounding_box)
+                self.vis.add_geometry(bounding_box, reset_bounding_box=False)
         if self.centroid_frames:
             for centroid_cross in self.centroid_frames[self.curr_frame]:
-                self.vis.add_geometry(centroid_cross)
+                pass
+                self.vis.add_geometry(centroid_cross, reset_bounding_box=False)
         if self.grid_frames:
             for grid in self.grid_frames[self.curr_frame]:
-                self.vis.add_geometry(grid)
+                pass
+                self.vis.add_geometry(grid, reset_bounding_box=False)
         self.vis.poll_events()
         self.vis.update_renderer()
