@@ -13,7 +13,7 @@ from ClusterTracking import get_cluster_tracks
 # -------------------------------
 # -------- Hyperparameter -------
 # -------------------------------
-NUM_MAX_FRAMES = 5
+NUM_MAX_FRAMES = 20
 PCD_FOLDER = r"C:\Users\Q554273\OneDrive - BMW Group\Selbststudium\_Master\LokalisierungBewegungsplanungFusion\Fallstudie\Data\2011_09_26_drive_0052_extract\2011_09_26\2011_09_26_drive_0052_extract\velodyne_points\data"
 TRIM_X_AXIS = [1.5, 15]
 TRIM_Y_AXIS = [-1.5, 5.6]

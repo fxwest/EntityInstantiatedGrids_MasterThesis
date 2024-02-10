@@ -17,6 +17,7 @@ class LidarViewer:
         self.num_frames = pc_trace.num_total_frames
         self.num_max_frames = pc_trace.num_max_frames
         self.curr_frame = 0
+        self.stop_play = False
 
         # --- Define the visualization window and add the point cloud
         self.vis = o3d.visualization.VisualizerWithKeyCallback()
@@ -38,6 +39,9 @@ class LidarViewer:
         self.vis.register_key_callback(256, self.exit_viewer)                                                           # Escape
         self.vis.register_key_callback(262, self.next_frame)                                                            # Right arrow key
         self.vis.register_key_callback(263, self.prev_frame)                                                            # Left arrow key
+        self.vis.register_key_callback(264, self.play_frames_back)                                                      # Down arrow key
+        self.vis.register_key_callback(265, self.play_frames)                                                           # Up arrow key
+        self.vis.register_key_callback(32, self.stop_auto_play)                                                         # Spacebar
 
         self.vis.run()
 
@@ -80,3 +84,26 @@ class LidarViewer:
                 self.vis.add_geometry(grid, reset_bounding_box=False)
         self.vis.poll_events()
         self.vis.update_renderer()
+
+    def play_frames(self, vis=None):
+        if vis:
+            self.vis = vis
+        for frame in range(self.curr_frame+1, len(self.pc_frame_list)-1):
+            self.update_point_cloud()
+            self.curr_frame += 1
+            if self.stop_play:
+                self.stop_play = False
+                break
+
+    def play_frames_back(self, vis=None):
+        if vis:
+            self.vis = vis
+        for frame in reversed(range(0, self.curr_frame-1)):
+            self.update_point_cloud()
+            self.curr_frame -= 1
+            if self.stop_play:
+                self.stop_play = False
+                break
+
+    def stop_auto_play(self, vis=None):
+        self.stop_play = True
