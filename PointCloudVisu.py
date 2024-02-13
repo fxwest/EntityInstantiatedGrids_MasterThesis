@@ -76,11 +76,9 @@ class LidarViewer:
                 self.vis.add_geometry(bounding_box, reset_bounding_box=False)
         if self.centroid_frames:
             for centroid_cross in self.centroid_frames[self.curr_frame]:
-                pass
                 self.vis.add_geometry(centroid_cross, reset_bounding_box=False)
         if self.grid_frames:
             for grid in self.grid_frames[self.curr_frame]:
-                pass
                 self.vis.add_geometry(grid, reset_bounding_box=False)
         self.vis.poll_events()
         self.vis.update_renderer()

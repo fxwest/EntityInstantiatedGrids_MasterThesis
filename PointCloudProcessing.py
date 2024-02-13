@@ -30,8 +30,9 @@ def get_entity_grids(tracked_pc_trace):
                 if cluster.tracker_age > 0:
                     for grid in grids_frame_list[frame_idx - 1]:
                         if grid.tracker_id == cluster.tracker_id:
-                            grid.update_entity_grid(cluster, point_cloud_all_points)
-                            grid_list.append(copy.deepcopy(grid))
+                            grid_copy = copy.deepcopy(grid)
+                            grid_copy.update_entity_grid(cluster, point_cloud_all_points)
+                            grid_list.append(copy.deepcopy(grid_copy))
                 else:
                     entity_grid = EntityGrid(cluster, point_cloud_all_points)
                     grid_list.append(entity_grid)
