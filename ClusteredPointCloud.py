@@ -3,6 +3,7 @@
 # -------------------------------
 import numpy as np
 import open3d as o3d
+from enum import Enum
 from sklearn.cluster import DBSCAN
 from PointCloud import PointCloudFrame
 
@@ -15,12 +16,21 @@ BOUNDING_BOX_COLOR = [0, 1, 0]
 
 
 # -------------------------------
+# ------------ Enums ------------
+# -------------------------------
+class AnchorType(Enum):
+    CENTROID = 0
+    CENTERED_FLOOR = 1
+    LEFT_EDGE = 2
+
+
+# -------------------------------
 # ------ Get Ground Plane -------
 # -------------------------------
-def panoptic_segmentation(pc_trace, eps=0.9, min_points=15):
+def panoptic_segmentation(pc_trace, eps=0.9, min_points=15, anchor_type=AnchorType.CENTROID):
     print(f"Starting Clustering with DBSCAN")
     for frame_idx, pc_frame in enumerate(pc_trace.pc_frame_list):
-        pc_trace.pc_frame_list[frame_idx] = PanopticPointCloudFrame(pc_frame, eps, min_points)
+        pc_trace.pc_frame_list[frame_idx] = PanopticPointCloudFrame(pc_frame, eps, min_points, anchor_type)
 
     return pc_trace
 
@@ -32,7 +42,7 @@ class PanopticPointCloudFrame(PointCloudFrame):
     """
     Clustered and Segmented Point Cloud, i.e. Panoptic Segmented Point Cloud Frame.
     """
-    def __init__(self, segmented_pc_frame, eps, min_points):
+    def __init__(self, segmented_pc_frame, eps, min_points, anchor_type):
         # --- Complete Point Cloud
         self.frame_idx = segmented_pc_frame.frame_idx
         self.pcdXYZ = segmented_pc_frame.pcdXYZ
@@ -49,7 +59,7 @@ class PanopticPointCloudFrame(PointCloudFrame):
         self.refl_ground = segmented_pc_frame.refl_ground
 
         # --- Run DBSCAN
-        self.entity_cluster_list, self.num_clusters, noise_indices = self.get_entity_clusters(segmented_pc_frame, eps, min_points)
+        self.entity_cluster_list, self.num_clusters, noise_indices = self.get_entity_clusters(segmented_pc_frame, eps, min_points, anchor_type)
         print(f"Frame {self.frame_idx} has {self.num_clusters} Clusters")
 
         # --- Noise Points
@@ -71,7 +81,7 @@ class PanopticPointCloudFrame(PointCloudFrame):
         # -- Merge Clusters Noise and Ground to one Point Cloud
         self.merge_point_clouds()
 
-    def get_entity_clusters(self, segmented_pc_frame, eps, min_points):
+    def get_entity_clusters(self, segmented_pc_frame, eps, min_points, anchor_type):
         dbscan = DBSCAN(eps=eps, min_samples=min_points)
         dbscan_labels = dbscan.fit_predict(segmented_pc_frame.point_array_outlier)
         num_clusters = dbscan_labels.max() + 1
@@ -83,7 +93,8 @@ class PanopticPointCloudFrame(PointCloudFrame):
             if label != -1:                                                                                             # Don't add noise clusters
                 cluster_indices = np.where(dbscan_labels == label)[0]
                 cluster_points = segmented_pc_frame.point_array_outlier[cluster_indices]
-                entity_cluster = EntityCluster(point_array=cluster_points, dbscan_label=label)                          # TODO: Also pass refl values?
+                entity_cluster = EntityCluster(point_array=cluster_points, dbscan_label=label, anchor_type=anchor_type,
+                                               segmented_pc_frame=segmented_pc_frame)                                   # TODO: Also pass refl values?
                 entity_cluster.tracker_id = entity_cluster.dbscan_label                                                 # Add DBSCAN-Label as Tracker ID
                 cluster_list.append(entity_cluster)
             else:
@@ -105,6 +116,7 @@ class PanopticPointCloudFrame(PointCloudFrame):
         self.point_array = np.asarray(self.pcdXYZ.points)
         self.refl = None                                                                                                # TODO: Can be added, if refl is added to EntityCluster Class
 
+
 class EntityCluster:
     noise_color = NOISE_COLOR
     bounding_box_color = BOUNDING_BOX_COLOR
@@ -115,7 +127,7 @@ class EntityCluster:
     def __str__(self):
         return f"Entity Cluster with Tracker ID {str(self.tracker_id)} and {self.number_points} Points."
 
-    def __init__(self, point_array, dbscan_label, bb_max_size=None, bb_point_limit=None):
+    def __init__(self, point_array, dbscan_label, anchor_type, segmented_pc_frame, bb_max_size=None, bb_point_limit=None):
         self.tracker_id = None
         self.tracker_age = 0
         self.dbscan_label = dbscan_label
@@ -128,6 +140,7 @@ class EntityCluster:
         self.point_cloud.colors = o3d.utility.Vector3dVector(self.color_map)
         self.min_coords, self.max_coords = self.get_min_max_coords()
         self.bounding_box = self.get_bounding_box(bb_max_size, bb_point_limit)
+        self.anchor_point = self.get_anchor_point(anchor_type, segmented_pc_frame)
 
     def get_color_map(self, copy_color=None):
         if copy_color:
@@ -178,9 +191,23 @@ class EntityCluster:
         centroid = np.mean(self.point_array, axis=0)
         return centroid
 
-    def euclidean_distance(self, second_centroid):
-        return np.sqrt((second_centroid[0] - self.centroid[0])**2 + (second_centroid[1] - self.centroid[1])**2 + (second_centroid[2] - self.centroid[2])**2)
+    def euclidean_distance(self, second_anchor_point):
+        return np.sqrt((second_anchor_point[0] - self.anchor_point[0])**2 + (second_anchor_point[1] - self.anchor_point[1])**2 + (second_anchor_point[2] - self.anchor_point[2])**2)
 
     def copy_color(self, second_centroid):
         self.color, self.color_map = self.get_color_map(second_centroid.color)
         self.point_cloud.colors = o3d.utility.Vector3dVector(self.color_map)
+
+    def get_anchor_point(self, anchor_type, segmented_pc_frame):
+        if anchor_type == AnchorType.CENTROID:
+            return self.centroid
+        if anchor_type == AnchorType.CENTERED_FLOOR:
+            x_min = self.min_coords[0]
+            z_min = segmented_pc_frame.get_ground_height(x_min)
+            y_centroid = self.centroid[1]
+            return np.array([x_min, y_centroid, z_min])
+        if anchor_type == AnchorType.LEFT_EDGE:
+            z_min = self.min_coords[2]
+            y_min = self.min_coords[1]
+            x_min = self.min_coords[0]
+            return np.array([x_min, y_min, z_min])

@@ -17,6 +17,23 @@ LKW_SIZE = [3.00, 18.75, 4.00]
 
 
 # -------------------------------
+# ------------ Enums ------------
+# -------------------------------
+class VehicleType(Enum):
+    UNKNOWN = 0
+    PKW = 1
+    LKW = 2
+
+
+class CellStatus(Enum):
+    FREE = 0
+    OCCUPIED = 1
+    OCCLUDED = 2
+    NOISE = 3
+    CONFIRMED_OCCUPIED = 4
+
+
+# -------------------------------
 # -------- Entity Grids ---------
 # -------------------------------
 def get_entity_grids(tracked_pc_trace):
@@ -41,12 +58,6 @@ def get_entity_grids(tracked_pc_trace):
     return grids_frame_list
 
 
-class VehicleType(Enum):
-    UNKNOWN = 0
-    PKW = 1
-    LKW = 2
-
-
 class EntityGrid:
     coord_cross_size = 1
     grid_color = [1.00, 0.41, 0.71]
@@ -67,7 +78,7 @@ class EntityGrid:
         self.tracker_id = entity_cluster.tracker_id
         self.entity_cluster = entity_cluster
         self.tracker_age = entity_cluster.tracker_age
-        self.centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.centroid)
+        self.coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.anchor_point)
         grid_borders = self.get_vehicle_model(grid_offset)
         self.voxel_grid = self.get_entity_grid(grid_borders, point_cloud_all_points, self.voxel_grid_history)
 
@@ -119,7 +130,7 @@ class EntityGrid:
     def update_entity_grid(self, entity_cluster, point_cloud_all_points):
         self.entity_cluster = entity_cluster
         self.tracker_age = entity_cluster.tracker_age
-        self.centroid_coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.centroid)
+        self.coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.anchor_point)
 
         # TODO: Grenzen nicht nur vom Cluster abhängig machen, möglichst stabil halten (relativer Abstand zum Ankerpunkt sollte konstant bleiben)
         grid_borders = self.get_vehicle_model(self.grid_offset)
@@ -170,14 +181,6 @@ class VoxelGrid:
                                            point_color=point_color,
                                            cell_history=cell_history)
                     self.grid_array[x_idx, y_idx, z_idx] = voxel_cell
-
-
-class CellStatus(Enum):
-    FREE = 0
-    OCCUPIED = 1
-    OCCLUDED = 2
-    NOISE = 3
-    CONFIRMED_OCCUPIED = 4
 
 
 class VoxelCell:

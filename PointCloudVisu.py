@@ -9,10 +9,10 @@ import open3d as o3d
 # -------- LiDAR Viewer ---------
 # -------------------------------
 class LidarViewer:
-    def __init__(self, pc_trace, bb_frames=None, centroid_frames=None, grid_frames=None):
+    def __init__(self, pc_trace, bb_frames=None, coord_cross_frames=None, grid_frames=None):
         self.pc_frame_list = pc_trace.pc_frame_list
         self.bb_frames = bb_frames
-        self.centroid_frames = centroid_frames
+        self.coord_cross_frames = coord_cross_frames
         self.grid_frames = grid_frames
         self.num_frames = pc_trace.num_total_frames
         self.num_max_frames = pc_trace.num_max_frames
@@ -28,9 +28,9 @@ class LidarViewer:
         if self.bb_frames:
             for bounding_box in self.bb_frames[self.curr_frame]:
                 self.vis.add_geometry(bounding_box)
-        if self.centroid_frames:
-            for centroid_cross in self.centroid_frames[self.curr_frame]:
-                self.vis.add_geometry(centroid_cross)
+        if self.coord_cross_frames:
+            for coord_cross in self.coord_cross_frames[self.curr_frame]:
+                self.vis.add_geometry(coord_cross)
         if self.grid_frames:
             for grid in self.grid_frames[self.curr_frame]:
                 self.vis.add_geometry(grid)
@@ -74,9 +74,9 @@ class LidarViewer:
         if self.bb_frames:
             for bounding_box in self.bb_frames[self.curr_frame]:
                 self.vis.add_geometry(bounding_box, reset_bounding_box=False)
-        if self.centroid_frames:
-            for centroid_cross in self.centroid_frames[self.curr_frame]:
-                self.vis.add_geometry(centroid_cross, reset_bounding_box=False)
+        if self.coord_cross_frames:
+            for coord_cross in self.coord_cross_frames[self.curr_frame]:
+                self.vis.add_geometry(coord_cross, reset_bounding_box=False)
         if self.grid_frames:
             for grid in self.grid_frames[self.curr_frame]:
                 self.vis.add_geometry(grid, reset_bounding_box=False)

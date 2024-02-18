@@ -7,13 +7,14 @@ import PointCloudProcessing as pcp
 
 from SegmentedPointCloud import segment_ground_plane
 from ClusteredPointCloud import panoptic_segmentation
+from ClusteredPointCloud import AnchorType
 from ClusterTracking import get_cluster_tracks
 
 
 # -------------------------------
 # -------- Hyperparameter -------
 # -------------------------------
-NUM_MAX_FRAMES = 20
+NUM_MAX_FRAMES = 5
 PCD_FOLDER = r"C:\Users\Q554273\OneDrive - BMW Group\Selbststudium\_Master\LokalisierungBewegungsplanungFusion\Fallstudie\Data\2011_09_26_drive_0052_extract\2011_09_26\2011_09_26_drive_0052_extract\velodyne_points\data"
 TRIM_X_AXIS = [1.5, 15]
 TRIM_Y_AXIS = [-1.5, 5.6]
@@ -27,11 +28,11 @@ def main():
     pc_trace = pc.PointCloudTrace(PCD_FOLDER, NUM_MAX_FRAMES)
     pc_trace.trim_pc_fov(TRIM_X_AXIS, TRIM_Y_AXIS, TRIM_Z_AXIS)
     segmented_pc_trace = segment_ground_plane(pc_trace, distance_threshold=0.15, ransac_n=5, num_iterations=100)         # distance_threshold is a trade-off between Ground FP and Small Obstacle FN
-    clustered_pc_trace = panoptic_segmentation(segmented_pc_trace, eps=0.9, min_points=100)
+    clustered_pc_trace = panoptic_segmentation(segmented_pc_trace, eps=0.9, min_points=100, anchor_type=AnchorType.CENTERED_FLOOR)
     tracked_pc_trace = get_cluster_tracks(clustered_pc_trace, max_dist=0.5, plot_kalman_results=False)
     grids_frame_list = pcp.get_entity_grids(tracked_pc_trace)
 
-    centroid_cross_frame_list = [[entity_grid.centroid_coord_cross for entity_grid in grid_frame if entity_grid] for grid_frame in grids_frame_list]
+    coord_cross_frame_list = [[entity_grid.coord_cross for entity_grid in grid_frame if entity_grid] for grid_frame in grids_frame_list]
 
     flag_show_empty_cells = False
     voxel_cell_visu_frames_list = []
@@ -53,7 +54,7 @@ def main():
 
 
     #bounding_boxes_frames = [[cluster.bounding_box for cluster in cluster_frame if cluster.bounding_box] for cluster_frame in clusters_frame_list]
-    pcv.LidarViewer(tracked_pc_trace, centroid_frames=centroid_cross_frame_list, grid_frames=voxel_cell_visu_frames_list) #, bb_frames=bounding_boxes_frames)
+    pcv.LidarViewer(tracked_pc_trace, coord_cross_frames=coord_cross_frame_list, grid_frames=voxel_cell_visu_frames_list) #, bb_frames=bounding_boxes_frames)
 
 
 # -------------------------------

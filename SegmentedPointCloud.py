@@ -40,7 +40,7 @@ class SegmentedPointCloudFrame(PointCloudFrame):
         self.refl = pc_frame.refl
 
         # --- Run RANSAC
-        self.pcdXYZ_ground, self.pcdXYZ_outlier, inliers = self.get_ground_plane_ransac(distance_threshold, ransac_n, num_iterations)
+        self.pcdXYZ_ground, self.pcdXYZ_outlier, inliers, self.plane_model = self.get_ground_plane_ransac(distance_threshold, ransac_n, num_iterations)
 
         # --- Ground Point Cloud
         self.octree_ground = o3d.geometry.Octree(max_depth=self.octree_max_depth)
@@ -77,4 +77,8 @@ class SegmentedPointCloudFrame(PointCloudFrame):
         pcdXYZ_ground.paint_uniform_color(GROUND_COLOR)                                                                 # Segment Color
         pcdXYZ_outlier.paint_uniform_color(OUTLIER_COLOR)
 
-        return pcdXYZ_ground, pcdXYZ_outlier, inliers
+        return pcdXYZ_ground, pcdXYZ_outlier, inliers, plane_model
+
+    def get_ground_height(self, x):
+        z = -(self.plane_model[0] * x + self.plane_model[3]) / self.plane_model[2]
+        return z
