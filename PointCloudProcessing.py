@@ -71,7 +71,7 @@ class EntityGrid:
     def __str__(self):
         return f"Entity Grid with Tracker ID {str(self.tracker_id)} and Tracker Age {str(self.tracker_age)}."
 
-    def __init__(self, entity_cluster, point_cloud_all_points, grid_offset=0.4):
+    def __init__(self, entity_cluster, point_cloud_all_points, grid_offset=0.6):
         self.voxel_grid_history = []
         self.vehicle_type = VehicleType.UNKNOWN
         self.grid_offset = grid_offset
@@ -79,10 +79,11 @@ class EntityGrid:
         self.entity_cluster = entity_cluster
         self.tracker_age = entity_cluster.tracker_age
         self.coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.anchor_point)
-        grid_borders = self.get_vehicle_model(grid_offset)
+        self.vehicle_type = self.get_vehicle_type()
+        grid_borders = self.get_grid_borders(grid_offset)
         self.voxel_grid = self.get_entity_grid(grid_borders, point_cloud_all_points, self.voxel_grid_history)
 
-    def get_vehicle_model(self, grid_offset):
+    def get_vehicle_type(self):
         cluster_width = self.entity_cluster.max_coords[0] - self.entity_cluster.min_coords[0]
         cluster_length = self.entity_cluster.max_coords[0] - self.entity_cluster.min_coords[0]
         cluster_height = self.entity_cluster.max_coords[0] - self.entity_cluster.min_coords[0]
@@ -104,21 +105,37 @@ class EntityGrid:
 
         if pkw_count > 0 or lkw_count > 0:
             if pkw_count > lkw_count:
-                self.vehicle_type = VehicleType.PKW
-                x_min, x_max = self.entity_cluster.min_coords[0] - PKW_SIZE[0]/2 - grid_offset, self.entity_cluster.max_coords[0] + PKW_SIZE[0]/2 + grid_offset
-                y_min, y_max = self.entity_cluster.min_coords[1] - grid_offset, self.entity_cluster.min_coords[1] + PKW_SIZE[1] + grid_offset
-                z_min, z_max = self.entity_cluster.min_coords[2] - grid_offset, self.entity_cluster.max_coords[2] + PKW_SIZE[2] + grid_offset
+                vehicle_type = VehicleType.PKW
             else:
-                self.vehicle_type = VehicleType.LKW
-                x_min, x_max = self.entity_cluster.min_coords[0] - LKW_SIZE[0] / 2 - grid_offset, self.entity_cluster.max_coords[0] + LKW_SIZE[0] / 2 + grid_offset
-                y_min, y_max = self.entity_cluster.min_coords[1] - grid_offset, self.entity_cluster.min_coords[1] + LKW_SIZE[1] + grid_offset
-                z_min, z_max = self.entity_cluster.min_coords[2] - grid_offset, self.entity_cluster.max_coords[2] + LKW_SIZE[2] + grid_offset
+                vehicle_type = VehicleType.LKW
         else:
-            x_min, x_max = self.entity_cluster.min_coords[0] - grid_offset, self.entity_cluster.max_coords[0] + grid_offset
-            y_min, y_max = self.entity_cluster.min_coords[1] - grid_offset, self.entity_cluster.max_coords[1] + grid_offset
-            z_min, z_max = self.entity_cluster.min_coords[2] - grid_offset, self.entity_cluster.max_coords[2] + grid_offset
+            vehicle_type = VehicleType.UNKNOWN
 
-        print(f"Assumed Vehicle Model: {self.vehicle_type}")
+        print(f"Assumed Vehicle Model: {vehicle_type}")
+        return vehicle_type
+
+    def get_grid_borders(self, grid_offset):
+        # TODO: Only implemented for floor centered anchor point and vehicles measured from behind
+        if self.vehicle_type == VehicleType.UNKNOWN:
+            cluster_width = self.entity_cluster.max_coords[0] - self.entity_cluster.min_coords[0]
+            x_min, x_max = self.entity_cluster.anchor_point[0] - grid_offset, \
+                self.entity_cluster.max_coords[0] + grid_offset
+            y_min, y_max = self.entity_cluster.anchor_point[1] - cluster_width / 2 - grid_offset, \
+                self.entity_cluster.anchor_point[1] + cluster_width / 2 + grid_offset
+            z_min, z_max = self.entity_cluster.anchor_point[2] - grid_offset, \
+                self.entity_cluster.max_coords[2] + grid_offset
+        else:
+            if self.vehicle_type == VehicleType.PKW:
+                geometric_vehicle_model = PKW_SIZE
+            elif self.vehicle_type == VehicleType.LKW:
+                geometric_vehicle_model = LKW_SIZE
+            x_min, x_max = self.entity_cluster.anchor_point[0] - (grid_offset*2), \
+                self.entity_cluster.anchor_point[0] + geometric_vehicle_model[1] + grid_offset                          # Double grid offset to consider e.g. fumes
+            y_min, y_max = self.entity_cluster.anchor_point[1] - geometric_vehicle_model[0] / 2 - grid_offset, \
+                self.entity_cluster.anchor_point[1] + geometric_vehicle_model[0] / 2 + grid_offset
+            z_min, z_max = self.entity_cluster.anchor_point[2] - grid_offset, \
+                self.entity_cluster.max_coords[2] + grid_offset                                                         # Vehicle model not considered in height, as detections above the vehicle are not relevant for the driving function
+
         return [x_min, x_max, y_min, y_max, z_min, z_max]
 
     def get_entity_grid(self, grid_borders, point_cloud_all_points, voxel_grid_history):
@@ -131,10 +148,7 @@ class EntityGrid:
         self.entity_cluster = entity_cluster
         self.tracker_age = entity_cluster.tracker_age
         self.coord_cross = o3d.geometry.TriangleMesh.create_coordinate_frame(size=self.coord_cross_size, origin=entity_cluster.anchor_point)
-
-        # TODO: Grenzen nicht nur vom Cluster abhängig machen, möglichst stabil halten (relativer Abstand zum Ankerpunkt sollte konstant bleiben)
-        grid_borders = self.get_vehicle_model(self.grid_offset)
-
+        grid_borders = self.get_grid_borders(self.grid_offset)                                                          # TODO: Vehicle type only estimated in the first frame, needs to be updated in later frames if estimation changes
         self.voxel_grid = self.get_entity_grid(grid_borders, point_cloud_all_points, self.voxel_grid_history)
         self.voxel_grid_history.append(self.voxel_grid)
 
