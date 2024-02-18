@@ -170,7 +170,7 @@ class VoxelGrid:
             self.x_cells_pos = np.arange(self.start_pos_skosy[0], self.end_pos_skosy[0] + cell_size, cell_size)         # Including last point
             self.y_cells_pos = np.arange(self.start_pos_skosy[1], self.end_pos_skosy[1] + cell_size, cell_size)
             self.z_cells_pos = np.arange(self.start_pos_skosy[2], self.end_pos_skosy[2] + cell_size, cell_size)
-            self.grid_dim = (len(self.x_cells_pos) - 1, len(self.y_cells_pos) - 1, len(self.z_cells_pos) - 1)           # Grid dimensions (number of cells per axis) TODO: Erster Frame entscheided Grid größe
+            self.grid_dim = (abs(len(self.x_cells_pos) - 1), abs(len(self.y_cells_pos) - 1), abs(len(self.z_cells_pos) - 1))         # Grid dimensions (number of cells per axis) TODO: Erster Frame entscheided Grid größe
         self.grid_array = np.empty(shape=self.grid_dim, dtype=object)
 
         for x_idx, x_axis_row in enumerate(self.grid_array):
@@ -223,12 +223,12 @@ class VoxelCell:
         self.visu_cell = o3d.geometry.AxisAlignedBoundingBox(self.start_pos_skosy, self.end_pos_skosy)
         self.visu_cell.color = self.visu_border_color_empty
         self.cell_status = CellStatus.FREE
-        if self.num_points > 0:                                                                                         # TODO: Status der Zelle (belegt, Noise, ML, etc.)
+        if self.num_points > 0:
             self.voxel_centroid = np.mean(self.point_array, axis=0)
             if self.is_geometrically_ordered(self.point_array, self.voxel_centroid) and self.num_points > 1:
                 if self.has_vertical_extend(self.point_array) or self.voxel_pos[2] > 1:                                 # Consider height to not classify the even roof as ground/noise
                     self.visu_cell.color = self.visu_border_color_filled
-                    self.cell_status = CellStatus.OCCUPIED
+                    self.cell_status = CellStatus.OCCUPIED                                                              # Occupied if > 1 points and geometrically ordered and vertical extend
             else:
                 self.visu_cell.color = self.visu_border_color_noise
                 self.cell_status = CellStatus.NOISE
