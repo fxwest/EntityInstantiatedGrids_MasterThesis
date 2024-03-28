@@ -64,6 +64,7 @@ def get_cluster_tracks(clustered_pc_trace, max_dist=0.5, plot_kalman_results=Fal
                                 cluster_track.update_track(entity_cluster.anchor_point)
                                 entity_cluster.anchor_point = cluster_track.estimated_anchor_point
                                 found_track = True
+
                                 break
                         if found_track:
                             break

@@ -21,7 +21,7 @@ class LidarViewer:
 
         # --- Define the visualization window and add the point cloud
         self.vis = o3d.visualization.VisualizerWithKeyCallback()
-        self.vis.create_window(width=1280, height=720)
+        self.vis.create_window(width=1280, height=720, window_name="Lidar Viewer")
         opt = self.vis.get_render_option()
         opt.background_color = np.asarray([0, 0, 0])
         self.vis.add_geometry(self.pc_frame_list[self.curr_frame].pcdXYZ)
